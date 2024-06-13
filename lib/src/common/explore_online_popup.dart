@@ -1,12 +1,12 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-import '../../app.dart';
-import '../../common.dart';
-import '../l10n/l10n.dart';
 import 'package:flutter/material.dart';
+import 'package:watch_it/watch_it.dart';
 import 'package:yaru/yaru.dart';
 
-class ExploreOnlinePopup extends ConsumerWidget {
+import '../../common.dart';
+import '../l10n/l10n.dart';
+import '../player/player_model.dart';
+
+class ExploreOnlinePopup extends StatelessWidget with WatchItMixin {
   const ExploreOnlinePopup({
     super.key,
     required this.text,
@@ -15,8 +15,8 @@ class ExploreOnlinePopup extends ConsumerWidget {
   final String text;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isOnline = ref.watch(appModelProvider.select((v) => v.isOnline));
+  Widget build(BuildContext context) {
+    final isOnline = watchPropertyValue((PlayerModel m) => m.isOnline);
     return YaruPopupMenuButton(
       enabled: isOnline,
       tooltip: context.l10n.searchOnline,

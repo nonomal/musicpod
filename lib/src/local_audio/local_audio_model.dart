@@ -2,27 +2,20 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:collection/collection.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:safe_change_notifier/safe_change_notifier.dart';
-import 'package:ubuntu_service/ubuntu_service.dart';
 
 import '../../common.dart';
 import '../../data.dart';
 import '../../local_audio.dart';
-import '../../settings.dart';
 
 class LocalAudioModel extends SafeChangeNotifier {
   LocalAudioModel({
     required LocalAudioService localAudioService,
-    required SettingsService settingsService,
-  })  : _localAudioService = localAudioService,
-        _settingsService = settingsService;
+  }) : _localAudioService = localAudioService;
 
   final LocalAudioService _localAudioService;
-  final SettingsService _settingsService;
 
   StreamSubscription<bool>? _audiosChangedSub;
-  StreamSubscription<bool>? _titlesViewAudioFilterIndexSub;
 
   Set<Audio>? _albumSearchResult;
   Set<Audio>? get albumSearchResult => _albumSearchResult;
@@ -110,13 +103,13 @@ class LocalAudioModel extends SafeChangeNotifier {
     notifyListeners();
   }
 
-  Set<Audio>? _audios;
-  Set<Audio>? get audios => _audios;
+  Set<Audio>? _titles;
+  Set<Audio>? get audios => _titles;
   Set<Audio>? _findAllTitles() {
     if (_localAudioService.audios == null) return null;
     final list = (_localAudioService.audios!).toList();
     sortListByAudioFilter(
-      audioFilter: AudioFilter.values[titlesViewAudioFilterIndex],
+      audioFilter: AudioFilter.title,
       audios: list,
     );
 
@@ -276,46 +269,43 @@ class LocalAudioModel extends SafeChangeNotifier {
     return images;
   }
 
+  List<String>? _failedImports;
+  List<String>? get failedImports => _failedImports;
+
   Future<void> init({
-    required void Function(List<String> failedImports) onFail,
     bool forceInit = false,
   }) async {
     if (forceInit ||
         (_localAudioService.audios == null ||
             _localAudioService.audios?.isEmpty == true)) {
-      final failedImports = await _localAudioService.init();
-
-      if (failedImports.isNotEmpty) {
-        onFail(failedImports);
+      if (forceInit) {
+        _titles = null;
+        notifyListeners();
       }
-      _audios = _findAllTitles();
+
+      _failedImports = await _localAudioService.init();
+
+      _titles = _findAllTitles();
       _allAlbums = findAllAlbums();
       _allArtists = _findAllArtists();
       _allGenres = _findAllGenres();
+    } else {
+      _titles ??= _findAllTitles();
+      _allAlbums ??= findAllAlbums();
+      _allArtists ??= _findAllArtists();
+      _allGenres ??= _findAllGenres();
     }
 
-    _audiosChangedSub = _localAudioService.audiosChanged.listen((_) {
-      notifyListeners();
-    });
-
-    _titlesViewAudioFilterIndexSub =
-        _settingsService.titlesViewAudioFilterIndexChanged.listen((_) {
-      _audios = _findAllTitles();
+    _audiosChangedSub ??= _localAudioService.audiosChanged.listen((_) {
       notifyListeners();
     });
 
     notifyListeners();
   }
 
-  int get titlesViewAudioFilterIndex =>
-      _settingsService.titlesViewAudioFilterIndex;
-  void setTitlesViewAudioFilterIndex(int value) =>
-      _settingsService.setTitlesViewAudioFilterIndex(value);
-
   @override
   Future<void> dispose() async {
     await _audiosChangedSub?.cancel();
-    await _titlesViewAudioFilterIndexSub?.cancel();
     super.dispose();
   }
 
@@ -326,11 +316,12 @@ class LocalAudioModel extends SafeChangeNotifier {
     _manualFilter = value;
     notifyListeners();
   }
-}
 
-final localAudioModelProvider = ChangeNotifierProvider(
-  (ref) => LocalAudioModel(
-    localAudioService: getService<LocalAudioService>(),
-    settingsService: getService<SettingsService>(),
-  ),
-);
+  bool _allowReorder = false;
+  bool get allowReorder => _allowReorder;
+  void setAllowReorder(bool value) {
+    if (value == _allowReorder) return;
+    _allowReorder = value;
+    notifyListeners();
+  }
+}

@@ -166,8 +166,70 @@ const kPatchNotes20240325 = 'Hello MusicPod Users\n'
     '\n\nIf you like MusicPod please consider sponsoring me:'
     '\n';
 
-const kRecentPatchNotesDisposed = kPatchNotes20240325disposed;
-const kRecentPatchNotesTitle = kPatchNotesTitle20240325;
-const kRecentPatchNotes = kPatchNotes20240325;
+// 2024 04 14
+const kPatchNotes20240414disposed = 'patchNotes20240414disposed';
+const kPatchNotesTitle20240414 = 'Patch notes: 2024-04-14';
+const kPatchNotes20240414 = 'Hello MusicPod Users\n'
+    '\n* this update brings only performance improvements'
+    '\n\nIf you like MusicPod please consider sponsoring me:'
+    '\n';
+
+// 2024 04 21
+const kPatchNotes20240421disposed = 'patchNotes20240421disposed';
+const kPatchNotesTitle20240421 = 'Patch notes: 2024-04-21';
+const kPatchNotes20240421 = 'Hello MusicPod Users, this update includes\n'
+    '\n* adaptive controls depending on audio type'
+    '\n* better color loading'
+    '\n* language search for radio and podcastindex (if active)'
+    '\n* bug fixes'
+    '\n\nIf you like MusicPod please consider sponsoring me:'
+    '\n';
+
+// 2024 04 24
+const kPatchNotes20240424disposed = 'patchNotes20240424disposed';
+const kPatchNotesTitle20240424 = 'Patch notes: 2024-04-24';
+const kPatchNotes20240424 = 'Hello MusicPod Users, this update includes\n'
+    '\n* icy tags and images in the media control tray'
+    '\n* improved performance'
+    '\n* better fallback widgets for streams'
+    '\n* bug fixes'
+    '\n\nIf you like MusicPod please consider sponsoring me:'
+    '\n';
+
+// 2024 05 05
+const kPatchNotes20240505disposed = 'patchNotes20240505disposed';
+const kPatchNotesTitle20240505 = 'Patch notes: 2024-05-05';
+const kPatchNotes20240505 = 'Hello MusicPod Users, this update includes\n'
+    '\n* improvements to the tray, should be more reliable now'
+    '\n* station pages give you more space on scroll now'
+    '\n* other pages will follow'
+    '\n* bug fixes'
+    '\n\nIf you like MusicPod please consider sponsoring me:'
+    '\n';
+
+// 2024 05 09
+const kPatchNotes20240509disposed = 'patchNotes20240509disposed';
+const kPatchNotesTitle20240509 = 'Patch notes: 2024-05-09';
+const kPatchNotes20240509 = 'Hello MusicPod Users, this update includes\n'
+    '\n* All pages are now fully reworked, so that headers will now scroll away to give you more space'
+    '\n* MacOs and Windows has a new theme (Phoenix Theme), which is a moderate version of Material, without surface tint, without ripple effect, with better contrast and with improved menus and dialogs'
+    '\n* you can now search podcast category and authors from a podcast page label and subtitle'
+    '\n* more controls for full height player videos on hover'
+    '\n* full window and full screen have now better icons'
+    '\n* bug fixes'
+    '\n\nIf you like MusicPod please consider sponsoring me:'
+    '\n';
+
+// 2024 05 18
+const kPatchNotes20240518disposed = 'patchNotes20240518disposed';
+const kPatchNotesTitle20240518 = 'Patch notes: 2024-05-18';
+const kPatchNotes20240518 = 'Hello MusicPod Users, this update includes\n'
+    '\n* Context menu improvements'
+    '\n* Bug fixes, thanks Mads ;)'
+    '\n';
+
+const kRecentPatchNotesDisposed = kPatchNotes20240518disposed;
+const kRecentPatchNotesTitle = kPatchNotesTitle20240518;
+const kRecentPatchNotes = kPatchNotes20240518;
 
 const kPatchNotesDisposed = 'kPatchNotesDisposed';

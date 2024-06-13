@@ -12,6 +12,8 @@
     "rewind10": "10 Sekunden zurückspulen",
     "fullWindow": "Vollfenstermodus",
     "leaveFullWindow": "Vollfenstermodus verlassen",
+    "fullScreen": "Vollbildmodus",
+    "leaveFullScreen": "Vollbildmodus verlassen",
     "playbackRate": "Wiedergabegeschwindigkeit",
     "addToFavorites": "Zu Favoriten hinzufügen",
     "removeFromFavorites": "Aus Favoriten entfernen",
@@ -123,6 +125,14 @@
     "copiedToClipBoard": "In die Zwischenablage kopiert:",
     "copyToClipBoard": "In die Zwischenablage kopieren",
     "insertIntoQueue": "In Warteschlange aufnehmen",
+    "insertedIntoQueue": "In Warteschlange aufgenommen: {name}",
+    "@insertedIntoQueue": {
+        "placeholders": {
+            "name": {
+                "type": "String"
+            }
+        }
+    },
     "about": "Über",
     "localAudioCacheSuggestion": "Du hast {length} lokale Audio-Dateien. Möchtest du einen Cache anlegen um den Programmstart zu beschleunigen?",
     "@localAudioCacheSuggestion": {
@@ -310,5 +320,7 @@
     "searchOnline": "Im Internet suchen",
     "shareThisEpisode": "Diese Episode teilen",
     "downloadEpisode": "Episode herunterladen",
-    "removeDownloadEpisode": "Episode-Download entfernen"
+    "removeDownloadEpisode": "Episode-Download entfernen",
+    "language": "Sprache",
+    "duration": "Dauer"
 }

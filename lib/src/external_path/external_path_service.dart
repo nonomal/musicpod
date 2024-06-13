@@ -39,8 +39,9 @@ class ExternalPathService {
     }
     try {
       readMetadata(File(path), getImage: true).then(
-        (data) => _playerService.play.call(
-          newAudio: Audio.fromMetadata(path: path, data: data),
+        (data) => _playerService.startPlaylist(
+          listName: path,
+          audios: {Audio.fromMetadata(path: path, data: data)},
         ),
       );
     } catch (_) {
@@ -59,8 +60,9 @@ class ExternalPathService {
         openFile().then((xfile) {
           if (xfile?.path == null) return;
           readMetadata(File(xfile!.path), getImage: true).then(
-            (metadata) => _playerService.play(
-              newAudio: Audio.fromMetadata(path: xfile.path, data: metadata),
+            (metadata) => _playerService.startPlaylist(
+              listName: xfile.path,
+              audios: {Audio.fromMetadata(path: xfile.path, data: metadata)},
             ),
           );
         });
@@ -105,10 +107,10 @@ class ExternalPathService {
         audios.add(
           Audio.fromMetadata(
             path: path,
-            data: (await readMetadata(
+            data: await readMetadata(
               File(e.link.replaceAll('file://', '')),
               getImage: true,
-            )),
+            ),
           ),
         );
       } else if (e.link.startsWith('http')) {
@@ -152,7 +154,7 @@ class ExternalPathService {
         audios.add(
           Audio.fromMetadata(
             path: e.file!,
-            data: (await readMetadata(File(e.file!), getImage: true)),
+            data: await readMetadata(File(e.file!), getImage: true),
           ),
         );
       }
@@ -163,7 +165,7 @@ class ExternalPathService {
 
   Future<String?> getPathOfDirectory() async {
     if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
-      return (await getDirectoryPath());
+      return await getDirectoryPath();
     }
     return null;
   }

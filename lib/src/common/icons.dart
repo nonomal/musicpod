@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:yaru/yaru.dart';
 
+import '../../build_context_x.dart';
 import '../../theme.dart';
 
 class Iconz {
@@ -17,6 +18,22 @@ class Iconz {
         : appleStyled
             ? CupertinoIcons.bars
             : Icons.menu;
+  }
+
+  IconData get updateAvailable {
+    return yaruStyled
+        ? YaruIcons.update_available
+        : appleStyled
+            ? CupertinoIcons.arrow_up_circle
+            : Icons.arrow_circle_up;
+  }
+
+  IconData get remove {
+    return yaruStyled
+        ? YaruIcons.minus
+        : appleStyled
+            ? CupertinoIcons.minus
+            : Icons.remove;
   }
 
   IconData get check => yaruStyled
@@ -49,6 +66,11 @@ class Iconz {
       : appleStyled
           ? CupertinoIcons.wifi_slash
           : Icons.offline_bolt;
+  IconData get cloud => yaruStyled
+      ? YaruIcons.cloud
+      : appleStyled
+          ? CupertinoIcons.cloud
+          : Icons.cloud_outlined;
   IconData get pause => yaruStyled
       ? YaruIcons.media_pause
       : appleStyled
@@ -148,6 +170,12 @@ class Iconz {
             : Icons.computer;
   }
 
+  IconData get settings => yaruStyled
+      ? YaruIcons.settings
+      : appleStyled
+          ? CupertinoIcons.settings
+          : Icons.settings;
+
   IconData get addToLibrary => yaruStyled
       ? YaruIcons.bell
       : appleStyled
@@ -183,6 +211,16 @@ class Iconz {
       : appleStyled
           ? CupertinoIcons.volume_off
           : Icons.volume_off;
+  IconData get fullWindowExit => yaruStyled
+      ? YaruIcons.arrow_down
+      : appleStyled
+          ? CupertinoIcons.arrow_down
+          : Icons.arrow_downward;
+  IconData get fullWindow => yaruStyled
+      ? YaruIcons.arrow_up
+      : appleStyled
+          ? CupertinoIcons.arrow_up
+          : Icons.arrow_upward;
   IconData get fullScreenExit => yaruStyled
       ? YaruIcons.fullscreen_exit
       : appleStyled
@@ -378,10 +416,12 @@ class Iconz {
           ? Icon(
               Iconz().starFilled,
               size: iconSize,
+              color: isStarred ? color : null,
             )
           : Icon(
               Iconz().star,
               size: iconSize,
+              color: isStarred ? color : null,
             );
     }
   }
@@ -419,4 +459,32 @@ IconData getIconForTag(String tag) {
           : appleStyled
               ? CupertinoIcons.double_music_note
               : Icons.music_note);
+}
+
+class DisconnectedServerIcon extends StatelessWidget {
+  const DisconnectedServerIcon({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.t;
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Icon(
+          Iconz().cloud,
+          color: theme.disabledColor,
+        ),
+        Positioned(
+          bottom: -2,
+          right: -2,
+          child: Icon(
+            Iconz().close,
+            color: theme.colorScheme.error,
+            size: 16,
+          ),
+        ),
+      ],
+    );
+  }
 }

@@ -5,6 +5,7 @@ import 'package:yaru/yaru.dart';
 
 import '../../build_context_x.dart';
 import '../../constants.dart';
+import '../../theme_data_x.dart';
 import '../l10n/l10n.dart';
 
 const _kBigTextMitigation = 2.0;
@@ -20,13 +21,13 @@ class AudioPageHeader extends StatelessWidget {
     this.imageRadius,
     this.onSubTitleTab,
     this.onLabelTab,
-    this.content,
+    this.descriptionWidget,
     this.padding,
   });
 
   final String title;
   final String? description;
-  final Widget? content;
+  final Widget? descriptionWidget;
   final Widget? image;
   final String? label;
   final String? subTitle;
@@ -40,10 +41,8 @@ class AudioPageHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     const height = kMaxAudioPageHeaderHeight;
     final theme = context.t;
-    final size = context.m.size;
-    final smallWindow = size.width < kMasterDetailBreakPoint;
+    final smallWindow = context.smallWindow;
     final radius = imageRadius ?? BorderRadius.circular(10);
-    final descriptionStyle = theme.textTheme.bodyMedium;
 
     return Padding(
       padding: !smallWindow
@@ -52,7 +51,7 @@ class AudioPageHeader extends StatelessWidget {
                 bottom: kYaruPagePadding,
                 left: kYaruPagePadding,
               ))
-          : const EdgeInsets.symmetric(vertical: kYaruPagePadding),
+          : const EdgeInsets.only(bottom: kYaruPagePadding),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         height: height,
@@ -90,67 +89,91 @@ class AudioPageHeader extends StatelessWidget {
               ),
             if (!smallWindow)
               Expanded(
-                child: content ??
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      children: [
-                        Flexible(
-                          flex: 2,
-                          child: AudioPageHeaderTitle(title: title),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    Flexible(
+                      flex: 2,
+                      child: Padding(
+                        padding: context.smallWindow
+                            ? EdgeInsets.zero
+                            : const EdgeInsets.only(right: kYaruPagePadding),
+                        child: Text(
+                          title,
+                          style: theme.pageHeaderStyle,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        Expanded(
-                          flex: 1,
-                          child: AudioPageHeaderSubTitle(
-                            onLabelTab: onLabelTab,
-                            label: label,
-                            subTitle: subTitle,
-                            onSubTitleTab: onSubTitleTab,
-                          ),
-                        ),
-                        Expanded(
-                          flex: 7,
-                          child: (description != null)
-                              ? Padding(
-                                  padding: const EdgeInsets.only(
-                                    left: _kBigTextMitigation,
-                                  ),
-                                  child: SingleChildScrollView(
-                                    padding: const EdgeInsets.only(
-                                      right: kYaruPagePadding,
-                                    ),
-                                    child: Html(
-                                      data: description,
-                                      onAnchorTap: (url, attributes, element) {
-                                        if (url == null) return;
-                                        launchUrl(Uri.parse(url));
-                                      },
-                                      style: {
-                                        'img': Style(display: Display.none),
-                                        'body': Style(
-                                          height: Height.auto(),
-                                          margin: Margins.zero,
-                                          padding: HtmlPaddings.zero,
-                                          textOverflow: TextOverflow.fade,
-                                          textAlign: TextAlign.start,
-                                          fontSize: FontSize(
-                                            descriptionStyle?.fontSize ?? 10,
-                                          ),
-                                          fontWeight:
-                                              descriptionStyle?.fontWeight,
-                                          fontFamily:
-                                              descriptionStyle?.fontFamily,
-                                        ),
-                                      },
-                                    ),
-                                  ),
-                                )
-                              : const SizedBox.expand(),
-                        ),
-                      ],
+                      ),
                     ),
+                    Expanded(
+                      flex: 1,
+                      child: AudioPageHeaderSubTitle(
+                        onLabelTab: onLabelTab,
+                        label: label,
+                        subTitle: subTitle,
+                        onSubTitleTab: onSubTitleTab,
+                      ),
+                    ),
+                    Expanded(
+                      flex: 7,
+                      child: descriptionWidget ??
+                          (description != null
+                              ? AudioPageHeaderHtmlDescription(
+                                  description: description,
+                                )
+                              : const SizedBox.expand()),
+                    ),
+                  ],
+                ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class AudioPageHeaderHtmlDescription extends StatelessWidget {
+  const AudioPageHeaderHtmlDescription({
+    super.key,
+    required this.description,
+  });
+
+  final String? description;
+
+  @override
+  Widget build(BuildContext context) {
+    final descriptionStyle = context.t.textTheme.bodyMedium;
+    return Padding(
+      padding: const EdgeInsets.only(
+        left: 2,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.only(
+          right: kYaruPagePadding,
+        ),
+        child: Html(
+          data: description,
+          onAnchorTap: (url, attributes, element) {
+            if (url == null) return;
+            launchUrl(Uri.parse(url));
+          },
+          style: {
+            'img': Style(display: Display.none),
+            'body': Style(
+              height: Height.auto(),
+              margin: Margins.zero,
+              padding: HtmlPaddings.zero,
+              textOverflow: TextOverflow.fade,
+              textAlign: TextAlign.start,
+              fontSize: FontSize(
+                descriptionStyle?.fontSize ?? 10,
+              ),
+              fontWeight: descriptionStyle?.fontWeight,
+              fontFamily: descriptionStyle?.fontFamily,
+            ),
+          },
         ),
       ),
     );
@@ -215,39 +238,6 @@ class AudioPageHeaderSubTitle extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-class AudioPageHeaderTitle extends StatelessWidget {
-  const AudioPageHeaderTitle({
-    super.key,
-    required this.title,
-  });
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.t;
-    final size = context.m.size;
-    final smallWindow = size.width < kMasterDetailBreakPoint;
-
-    return Padding(
-      padding: smallWindow
-          ? EdgeInsets.zero
-          : const EdgeInsets.only(right: kYaruPagePadding),
-      child: Text(
-        title,
-        style: theme.textTheme.headlineLarge?.copyWith(
-          fontWeight: FontWeight.w300,
-          letterSpacing: 0,
-          leadingDistribution: TextLeadingDistribution.proportional,
-          fontSize: 30,
-          color: theme.colorScheme.onSurface.withOpacity(0.9),
-        ),
-        overflow: TextOverflow.ellipsis,
-      ),
     );
   }
 }

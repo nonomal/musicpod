@@ -5,36 +5,38 @@ import '../../build_context_x.dart';
 import '../../theme_data_x.dart';
 
 class AdaptiveContainer extends StatelessWidget {
-  const AdaptiveContainer({super.key, required this.child});
+  const AdaptiveContainer({super.key, required this.child, this.padding});
   final Widget child;
+
+  final EdgeInsetsGeometry? padding;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.t;
-    final smallWindow = context.m.size.width < 1200;
+    final wrapInContainer = context.wideWindow;
+    final color = wrapInContainer ? null : theme.containerBg;
 
     return Center(
-      child: Container(
-        padding: smallWindow
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 100),
+        padding: wrapInContainer
             ? EdgeInsets.zero
             : const EdgeInsets.only(
                 left: kYaruPagePadding,
                 right: kYaruPagePadding,
                 bottom: kYaruPagePadding,
               ),
-        width: smallWindow ? double.infinity : 800,
+        width: wrapInContainer ? null : 800,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(kYaruContainerRadius),
           child: YaruBorderContainer(
-            color: smallWindow
-                ? null
-                : theme.colorScheme.onSurface
-                    .withOpacity(theme.isLight ? 0.04 : 0.03),
-            padding: smallWindow
-                ? EdgeInsets.zero
-                : const EdgeInsets.only(top: kYaruPagePadding),
+            color: color,
+            padding: padding ??
+                (wrapInContainer
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.only(top: kYaruPagePadding)),
             border: Border.all(
-              color: smallWindow ? Colors.transparent : theme.dividerColor,
+              color: wrapInContainer ? Colors.transparent : theme.dividerColor,
             ),
             child: child,
           ),

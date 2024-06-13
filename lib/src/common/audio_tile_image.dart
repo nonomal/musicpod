@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'package:yaru/yaru.dart';
 
 import '../../build_context_x.dart';
 import '../../common.dart';
+import '../../constants.dart';
 import '../../data.dart';
 import '../../theme.dart';
 import '../../theme_data_x.dart';
 
-class AudioTileImage extends ConsumerWidget {
+class AudioTileImage extends StatelessWidget {
   const AudioTileImage({
     super.key,
     this.audio,
@@ -18,7 +19,7 @@ class AudioTileImage extends ConsumerWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final iconSize = size / (1.65);
     final theme = context.t;
     IconData iconData;
@@ -29,8 +30,9 @@ class AudioTileImage extends ConsumerWidget {
     } else {
       iconData = Iconz().musicNote;
     }
+    Widget image;
     if (audio?.pictureData != null) {
-      return Image.memory(
+      image = Image.memory(
         filterQuality: FilterQuality.medium,
         fit: BoxFit.cover,
         audio!.pictureData!,
@@ -38,13 +40,13 @@ class AudioTileImage extends ConsumerWidget {
       );
     } else {
       if (audio?.imageUrl != null || audio?.albumArtUrl != null) {
-        return SafeNetworkImage(
+        image = SafeNetworkImage(
           url: audio?.imageUrl ?? audio?.albumArtUrl,
           height: size,
           fit: BoxFit.cover,
         );
       } else {
-        return Center(
+        image = Center(
           child: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -81,5 +83,13 @@ class AudioTileImage extends ConsumerWidget {
         );
       }
     }
+
+    return SizedBox.square(
+      dimension: kAudioTrackWidth,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(5),
+        child: image,
+      ),
+    );
   }
 }
