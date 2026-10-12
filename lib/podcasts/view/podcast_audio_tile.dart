@@ -1,0 +1,247 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:yaru/yaru.dart';
+
+import '../../app/routing_manager.dart';
+import '../../common/data/audio.dart';
+import '../../common/view/audio_tile_image.dart';
+import '../../common/view/html_text.dart';
+import '../../common/view/icons.dart';
+import '../../common/view/share_button.dart';
+import '../../common/view/theme.dart';
+import '../../common/view/ui_constants.dart';
+import '../../extensions/build_context_x.dart';
+import '../../extensions/duration_x.dart';
+import '../../extensions/int_x.dart';
+import '../../extensions/platform_x.dart';
+import '../../player/manager/queue_manager.dart';
+import '../../settings/data/shared_preferences_keys.dart';
+import '../../settings/manager/settings_manager.dart';
+import 'download_button.dart';
+import 'podcast_mark_done_button.dart';
+import 'podcast_replay_button.dart';
+import 'podcast_tile_play_button.dart';
+
+class PodcastAudioTile extends ConsumerWidget {
+  const PodcastAudioTile({
+    super.key,
+    required this.audio,
+    required this.selected,
+    required this.play,
+    this.isExpanded = false,
+    required this.addPodcast,
+    this.includePodcastImage = false,
+  });
+
+  final Audio audio;
+  final bool selected;
+
+  final void Function() play;
+  final void Function() addPodcast;
+
+  final bool isExpanded;
+  final bool includePodcastImage;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final date = audio.publicationDate.unixTimeToDateString;
+    final duration = audio.durationMs != null
+        ? Duration(milliseconds: audio.durationMs!.toInt()).formattedTime
+        : context.l10n.unknown;
+    final label = '$date, ${context.l10n.duration}: $duration';
+
+    final useYaruTheme =
+        ref.watch(settingsBoolManagerProvider(SPKeys.useYaruTheme)) ?? isLinux;
+    final radius =
+        (useYaruTheme
+            ? kYaruTitleBarItemHeight
+            : isMobile
+            ? 42
+            : 38) /
+        2;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: kMediumSpace),
+      child: YaruExpandable(
+        isExpanded: isExpanded,
+        expandIconPadding: const EdgeInsets.only(
+          right: kSmallestSpace,
+          bottom: kMediumPlusSpace,
+        ),
+        gapHeight: 0,
+        header: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: Padding(
+            padding: const EdgeInsets.only(
+              top: 0,
+              bottom: kMediumPlusSpace,
+              left: kMediumPlusSpace,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
+              spacing: kMediumSpace,
+              children: [
+                PodcastTilePlayButton(
+                  selected: selected,
+                  audio: audio,
+                  play: play,
+                ),
+                if (includePodcastImage)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(radius / 2),
+                    onTap: audio.feedUrl != null
+                        ? () => ref
+                              .read(routingManagerProvider.notifier)
+                              .push(pageId: audio.feedUrl!)
+                        : null,
+                    child: AudioTileImage(audio: audio, size: radius * 2),
+                  ),
+                Expanded(
+                  child: _Center(
+                    selected: selected,
+                    title: audio.title ?? '',
+                    label: label,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: isMobile
+                ? const EdgeInsets.symmetric(horizontal: kMediumPlusSpace)
+                : EdgeInsets.only(left: (radius * 2) + 30, right: 60),
+            child: Column(
+              children: [
+                _Description(
+                  description: audio.episodeDescription,
+                  title: audio.title,
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Row(
+                      children: space(
+                        children: [
+                          DownloadButton(audio: audio, addPodcast: addPodcast),
+                          ShareButton(active: true, audio: audio),
+                          IconButton(
+                            tooltip: context.l10n.insertIntoQueue,
+                            onPressed: () {
+                              final text =
+                                  '${audio.title != null ? '${audio.podcastTitle} - ' : ''}${audio.title ?? ''}';
+                              ref
+                                  .read(queueManagerProvider.notifier)
+                                  .insertIntoQueue([audio]);
+                              context.toast(
+                                Text(context.l10n.insertedIntoQueue(text)),
+                              );
+                            },
+                            icon: Icon(Iconz.insertIntoQueue),
+                          ),
+                          PodcastEpisodeResetProgressButton(audio: audio),
+                          EpisodeMarkDownButton(episode: audio),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Center extends StatelessWidget {
+  const _Center({
+    required this.title,
+    required this.selected,
+    required this.label,
+  });
+
+  final String title;
+  final String label;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.theme;
+    final textStyle = TextStyle(
+      color: theme.colorScheme.onSurface,
+      fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+      fontSize: 16,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: textStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        SizedBox(
+          width: double.infinity,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: Text(label, style: theme.textTheme.labelMedium)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Description extends ConsumerWidget {
+  const _Description({required this.description, required this.title});
+
+  final String? description;
+  final String? title;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final useYaruTheme =
+        ref.watch(settingsBoolManagerProvider(SPKeys.useYaruTheme)) ?? isLinux;
+    final theme = context.theme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => context.dialog(
+        (c) => SimpleDialog(
+          titlePadding: EdgeInsets.zero,
+          title: YaruDialogTitleBar(
+            backgroundColor: theme.dialogTheme.backgroundColor,
+            border: BorderSide.none,
+            title: Text(title ?? ''),
+          ),
+          contentPadding: EdgeInsets.only(
+            top: useYaruTheme ? 0 : kLargestSpace,
+            left: kLargestSpace,
+            right: kLargestSpace,
+            bottom: kLargestSpace,
+          ),
+          children: [
+            SizedBox(width: 400, child: HtmlText(text: description ?? '')),
+          ],
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: kSmallestSpace),
+        child: SizedBox(
+          height: 100,
+          width: double.infinity,
+          child: HtmlText(text: description ?? '', wrapInFakeScroll: true),
+        ),
+      ),
+    );
+  }
+}

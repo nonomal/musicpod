@@ -1,0 +1,167 @@
+import 'package:collection/collection.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../common/view/icons.dart';
+import '../../common/view/ui_constants.dart';
+import '../../extensions/build_context_x.dart';
+import '../../player/manager/queue_manager.dart';
+import '../../player/view/player_main_controls.dart';
+import '../../player/view/player_view.dart';
+import '../full_window_mode_manager.dart';
+import '../page_ids.dart';
+import '../routing_manager.dart';
+import 'common_handlers_and_commands.dart';
+import 'create_master_items.dart';
+import 'mobile_bottom_bar.dart';
+
+class MobilePage extends ConsumerWidget {
+  const MobilePage({super.key, required this.page});
+
+  final Widget page;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fullWindowMode = ref.watch(fullWindowModeManagerProvider);
+
+    return _MobilePageContent(
+      fullWindowMode: fullWindowMode,
+      onDismissFullWindowMode: () => ref
+          .read(fullWindowModeManagerProvider.notifier)
+          .setFullWindowMode(false),
+      page: page,
+    );
+  }
+}
+
+class _MobilePageContent extends ConsumerWidget
+    with CommonHandlersAndCommandsMixin {
+  const _MobilePageContent({
+    required this.fullWindowMode,
+    required this.onDismissFullWindowMode,
+    required this.page,
+  });
+
+  final bool fullWindowMode;
+  final VoidCallback onDismissFullWindowMode;
+  final Widget page;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    callCommonCommands(context);
+    registerCommonHandlers(context);
+
+    return PopScope(
+      canPop: !fullWindowMode,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (fullWindowMode) {
+          onDismissFullWindowMode();
+        }
+      },
+      child: Scaffold(
+        resizeToAvoidBottomInset: false,
+        extendBody: true,
+        extendBodyBehindAppBar: true,
+        bottomNavigationBar: (!context.showMasterPanel && !fullWindowMode)
+            ? const Hero(tag: 'bottomPlayer', child: MobileBottomBar())
+            : null,
+        body: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (context.showMasterPanel && !fullWindowMode) ...[
+              const Hero(tag: 'masterPanel', child: MasterRail()),
+              const Hero(
+                tag: 'masterPanelDivider',
+                child: Material(child: VerticalDivider()),
+              ),
+            ],
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  page,
+                  if (fullWindowMode)
+                    Material(
+                      color: context.theme.scaffoldBackgroundColor,
+                      child: GestureDetector(
+                        onHorizontalDragEnd: (details) {
+                          if (details.primaryVelocity != null) {
+                            if (details.primaryVelocity! < -150) {
+                              ref
+                                  .read(queueManagerProvider.notifier)
+                                  .playNext();
+                            } else if (details.primaryVelocity! > 150) {
+                              ref
+                                  .read(queueManagerProvider.notifier)
+                                  .playPrevious();
+                            }
+                          }
+                        },
+                        onVerticalDragEnd: (details) {
+                          if (details.primaryVelocity != null &&
+                              details.primaryVelocity! > 150) {
+                            onDismissFullWindowMode();
+                          }
+                        },
+                        child: const PlayerView.fullWindow(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class MasterRail extends ConsumerWidget {
+  const MasterRail({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selectedPageId = ref.watch(routingManagerProvider);
+
+    final destinations = permanentMasterItems
+        .map(
+          (e) => NavigationRailDestination(
+            icon: e.pageId == PageIDs.likedAudios
+                ? Icon(Iconz.heart)
+                : e.iconBuilder(false),
+            label: e.titleBuilder(context),
+            selectedIcon: e.pageId == PageIDs.likedAudios
+                ? Icon(Iconz.heartFilled)
+                : e.iconBuilder(true),
+            padding: const EdgeInsets.symmetric(vertical: kSmallestSpace),
+          ),
+        )
+        .toList();
+
+    final selectedItem = permanentMasterItems.firstWhereOrNull(
+      (e) => e.pageId == selectedPageId,
+    );
+
+    return NavigationRail(
+      scrollable: true,
+      extended: true,
+      minExtendedWidth: 180,
+      onDestinationSelected: (index) => ref
+          .read(routingManagerProvider.notifier)
+          .push(pageId: permanentMasterItems.elementAt(index).pageId),
+      destinations: destinations,
+      selectedIndex: selectedItem == null
+          ? 0
+          : permanentMasterItems.toList().indexOf(selectedItem),
+      trailingAtBottom: true,
+      trailing: const Material(
+        color: Colors.transparent,
+        child: PlayerCompactControls(
+          mainAxisAlignment: MainAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+        ),
+      ),
+    );
+  }
+}

@@ -1,0 +1,169 @@
+import 'package:audio_service/audio_service.dart';
+import 'package:audio_service_mpris/audio_service_mpris.dart';
+import 'package:injectable/injectable.dart';
+import 'package:window_manager/window_manager.dart';
+
+import '../app/app_config.dart';
+import '../common/data/audio.dart';
+import '../common/data/audio_type.dart';
+import '../common/util/snap_detector.dart';
+import '../extensions/platform_x.dart';
+import '../player/service/player_service.dart';
+
+@module
+abstract class AudioServiceModule {
+  @preResolve
+  Future<AudioServiceHandler> audioServiceHandler(
+    PlayerService playerService,
+    WindowManager windowManager,
+  ) async {
+    if (isLinux) {
+      final mpris = await AudioServiceMpris.init(
+        dBusName: AppConfig.appName,
+        identity: AppConfig.appTitle,
+        desktopEntry: SnapDetector.isSnap
+            ? AppConfig.snapDesktopEntry
+            : AppConfig.desktopEntry,
+        canGoNext: true,
+        canGoPrevious: true,
+        canPlay: true,
+        canPause: true,
+        canControl: true,
+        enableLogging: false,
+        onRaiseRequest: windowManager.show,
+      );
+      mpris.desktopEntry = SnapDetector.isSnap
+          ? AppConfig.snapDesktopEntry
+          : AppConfig.desktopEntry;
+    }
+    final handler = await _registerAudioServiceHandler(playerService);
+
+    return handler;
+  }
+}
+
+Future<AudioServiceHandler> _registerAudioServiceHandler(
+  PlayerService playerService,
+) async {
+  final audioHandler = await AudioService.init(
+    config: const AudioServiceConfig(
+      androidNotificationOngoing: false,
+      androidStopForegroundOnPause: false,
+      androidNotificationChannelName: AppConfig.appName,
+      androidNotificationChannelId: AppConfig.androidChannelId,
+      androidNotificationChannelDescription: 'MusicPod Media Controls',
+    ),
+    builder: () => AudioServiceHandler(
+      onPlay: playerService.playOrPause,
+      onNext: playerService.playNext,
+      onPause: playerService.pause,
+      onPrevious: playerService.playPrevious,
+      onSeek: playerService.seek,
+    ),
+  );
+
+  playerService.registerMediaControlsCallBacks(
+    onIsPlaying:
+        ({required audioType, required isPlaying, required queueNotEmpty}) {
+          audioHandler.playbackState.add(
+            audioHandler.playbackState.value.copyWith(
+              playing: isPlaying,
+              controls: [
+                if (audioType == AudioType.podcast && (isMacOS || isAndroid))
+                  MediaControl.rewind
+                else if (queueNotEmpty && audioType != AudioType.radio)
+                  MediaControl.skipToPrevious,
+                isPlaying ? MediaControl.pause : MediaControl.play,
+                if (audioType == AudioType.podcast && (isMacOS || isAndroid))
+                  MediaControl.fastForward
+                else if (queueNotEmpty && audioType != AudioType.radio)
+                  MediaControl.skipToNext,
+              ],
+              processingState: AudioProcessingState.ready,
+            ),
+          );
+          return Future.value();
+        },
+    onSetMetaData: ({required Uri? artUri, required Audio audio}) {
+      if (audioHandler.mediaItem.value?.artUri.toString() == artUri?.toString())
+        return;
+      audioHandler.mediaItem.add(
+        MediaItem(
+          id: audio.toString(),
+          title: audio.title ?? AppConfig.appTitle,
+          artist: audio.artist ?? audio.copyright ?? audio.language ?? '',
+          artUri: artUri,
+          duration: audio.durationMs == null
+              ? null
+              : Duration(milliseconds: audio.durationMs!.toInt()),
+        ),
+      );
+    },
+    onSetPosition: (position) {
+      audioHandler.playbackState.add(
+        audioHandler.playbackState.value.copyWith(
+          updatePosition: position ?? Duration.zero,
+        ),
+      );
+    },
+    onSetDuration: (duration) {
+      if (audioHandler.mediaItem.value != null) {
+        audioHandler.mediaItem.add(
+          audioHandler.mediaItem.value!.copyWith(duration: duration),
+        );
+      }
+    },
+    onStop: () => audioHandler.stop(),
+  );
+
+  return audioHandler;
+}
+
+class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
+  final Future<void> Function() onPlay;
+  final Future<void> Function() onPause;
+  final Future<void> Function() onNext;
+  final Future<void> Function() onPrevious;
+  final Future<void> Function(Duration position) onSeek;
+
+  AudioServiceHandler({
+    required this.onPlay,
+    required this.onPause,
+    required this.onNext,
+    required this.onPrevious,
+    required this.onSeek,
+  }) {
+    playbackState.add(
+      PlaybackState(
+        playing: false,
+        systemActions: {
+          MediaAction.seek,
+          MediaAction.seekBackward,
+          MediaAction.seekForward,
+        },
+        controls: [
+          MediaControl.skipToPrevious,
+          MediaControl.rewind,
+          MediaControl.play,
+          MediaControl.fastForward,
+          MediaControl.skipToNext,
+        ],
+      ),
+    );
+  }
+
+  @override
+  Future<void> play() => onPlay();
+
+  @override
+  Future<void> pause() => onPause();
+
+  @override
+  Future<void> skipToNext() => onNext();
+
+  @override
+  Future<void> skipToPrevious() => onPrevious();
+
+  @override
+  Future<void> seek(Duration position) => onSeek(position);
+}

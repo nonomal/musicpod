@@ -1,0 +1,122 @@
+import 'package:collection/collection.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../common/data/audio_type.dart';
+import '../../common/view/modals.dart';
+import '../../common/view/ui_constants.dart';
+import '../../extensions/build_context_x.dart';
+import '../manager/search_manager.dart';
+
+class AudioTypeFilterButton extends StatelessWidget {
+  const AudioTypeFilterButton({super.key, required OverlayMode mode})
+    : _mode = mode;
+
+  final OverlayMode _mode;
+
+  @override
+  Widget build(BuildContext context) => switch (_mode) {
+    OverlayMode.bottomSheet => const AudioTypeFilterBottomSheetButton(),
+    OverlayMode.popup => const AudioTypeFilterSwitcher(),
+  };
+}
+
+class AudioTypeFilterSwitcher extends ConsumerWidget {
+  const AudioTypeFilterSwitcher({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final searchManager = ref.read(searchManagerProvider.notifier);
+    final audioType = ref.watch(
+      searchManagerProvider.select((s) => s.audioType),
+    );
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: AudioType.values.mapIndexed((i, e) {
+        final selected = audioType == e;
+
+        final backgroundColor = selected
+            ? context.theme.colorScheme.primary
+            : null;
+        final foregroundColor = selected
+            ? context.theme.colorScheme.onPrimary
+            : null;
+
+        return IconButton(
+          style: IconButton.styleFrom(
+            backgroundColor: backgroundColor,
+            foregroundColor: foregroundColor,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.zero,
+            ),
+          ),
+          isSelected: selected,
+
+          tooltip: e.localize(l10n),
+          padding: EdgeInsets.zero,
+          onPressed: () => searchManager
+            ..setAudioType(e)
+            ..search(clear: true),
+          icon: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: kSmallestSpace),
+            child: Icon(
+              e.iconData,
+              size: 20,
+              semanticLabel: e.localize(l10n),
+              color: foregroundColor,
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class AudioTypeFilterBottomSheetButton extends ConsumerWidget {
+  const AudioTypeFilterBottomSheetButton({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final searchManager = ref.read(searchManagerProvider.notifier);
+    final audioType = ref.watch(
+      searchManagerProvider.select((s) => s.audioType),
+    );
+
+    return IconButton(
+      padding: EdgeInsets.zero,
+      onPressed: () => showModalBottomSheet(
+        context: context,
+        builder: (context) => BottomSheet(
+          onClosing: () {},
+          builder: (context) => ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.all(10),
+            children: AudioType.values
+                .map(
+                  (e) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      leading: Icon(e.iconData),
+                      onTap: () {
+                        context.pop();
+                        searchManager
+                          ..setAudioType(e)
+                          ..search(clear: true);
+                      },
+                      title: Text(
+                        '${l10n.search}: ${e.localize(context.l10n)}',
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+      ),
+      icon: Icon(audioType.iconData),
+    );
+  }
+}

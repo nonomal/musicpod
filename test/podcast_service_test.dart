@@ -1,49 +1,46 @@
-// ignore_for_file: avoid_print
-
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
-import 'package:musicpod/data.dart';
-import 'package:musicpod/podcasts.dart';
-import 'package:musicpod/src/notifications/notifications_service.dart';
-import 'package:musicpod/src/settings/settings_service.dart';
+import 'package:musicpod/common/data/audio.dart';
+import 'package:musicpod/common/persistence/database.dart';
+import 'package:musicpod/podcasts/data/podcast_genre.dart';
+import 'package:musicpod/podcasts/persistence/podcast_dao.dart';
+import 'package:musicpod/podcasts/service/podcast_service.dart';
+import 'package:musicpod/settings/service/settings_service.dart';
 import 'package:podcast_search/podcast_search.dart';
 
 import 'podcast_service_test.mocks.dart';
+import 'test_audios.dart';
 
-const Audio episodeOneAudio = Audio(
-  url:
-      'https://aphid.fireside.fm/d/1437767933/f31a453c-fa15-491f-8618-3f71f1d565e5/1c572137-1d75-4eb6-a07b-0bd4859d6e1a.mp3',
-  website: 'https://feeds.jupiterbroadcasting.com/lup',
-  artist: 'Jupiter Broadcasting',
-  title: 'Episode 1: Too Much Choice | LU1',
-);
-
-@GenerateMocks([NotificationsService, SettingsService])
+@GenerateMocks([SettingsService])
 Future<void> main() async {
-  final mockNotificationsService = MockNotificationsService();
   final mockSettingsService = MockSettingsService();
 
-  when(mockSettingsService.usePodcastIndex)
-      .thenAnswer((realInvocation) => false);
+  when(mockSettingsService.getBool(any)).thenAnswer((realInvocation) => false);
 
+  final dao = PodcastDao(db: Database(NativeDatabase.memory()));
   final service = PodcastService(
-    notificationsService: mockNotificationsService,
     settingsService: mockSettingsService,
+    dao: dao,
   );
-  await service.init();
 
   test('searchByQuery', () async {
-    final result = await service.search(searchQuery: 'LINUX Unplugged');
+    final result = await service.search(
+      searchQuery: 'Flying High with Flutter',
+    );
     final feedUrl = result?.items.first.feedUrl;
-    Set<Audio>? episodes;
+    List<Audio>? episodes;
     if (feedUrl != null) {
-      episodes = await findEpisodes(feedUrl: feedUrl);
+      episodes = await service.findEpisodes(
+        feedUrl: feedUrl,
+        tryFromDbOnly: false,
+      );
     }
 
     expect(episodes?.last.url == episodeOneAudio.url, true);
-    expect(episodes?.last.website == episodeOneAudio.website, true);
-    expect(episodes?.last.artist == episodeOneAudio.artist, true);
+    expect(episodes?.last.feedUrl == episodeOneAudio.feedUrl, true);
+    expect(episodes?.last.copyright == episodeOneAudio.copyright, true);
     expect(episodes?.last.title == episodeOneAudio.title, true);
   });
 
@@ -52,9 +49,37 @@ Future<void> main() async {
       country: Country.germany,
       podcastGenre: PodcastGenre.fiction,
     );
-    expect(
-      result?.items.isNotEmpty,
-      true,
-    );
+    expect(result?.items.isNotEmpty, true);
   });
+
+  test(
+    'togglePodcastSubscription subscribe, unsubscribe, check status',
+    () async {
+      const feedUrl = 'https://example.com/test_podcast.xml';
+      // Initially not subscribed
+      expect(await service.isPodcastSubscribed(feedUrl), false);
+
+      // 1. First add podcast like findEpisodes does
+      await dao.addPodcast(
+        feedUrl: feedUrl,
+        subscribe: false,
+        imageUrl: 'https://example.com/image.png',
+        name: 'Test Podcast',
+        artist: 'Test Artist',
+      );
+      expect(await service.isPodcastSubscribed(feedUrl), false);
+
+      // 2. Subscribe
+      await service.togglePodcastSubscription(feedUrl: feedUrl);
+      expect(await service.isPodcastSubscribed(feedUrl), true);
+
+      // 3. Unsubscribe
+      await service.togglePodcastSubscription(feedUrl: feedUrl);
+      expect(await service.isPodcastSubscribed(feedUrl), false);
+
+      // 4. cleanUpUnusedPodcasts
+      await service.deleteUnsubscribedPodcastData();
+      expect(await service.isPodcastSubscribed(feedUrl), false);
+    },
+  );
 }

@@ -1,56 +1,77 @@
 import 'dart:io';
 
 import 'package:collection/collection.dart';
-import 'package:flutter/widgets.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
-import 'package:musicpod/data.dart';
-import 'package:musicpod/local_audio.dart';
-import 'package:musicpod/settings.dart';
+import 'package:mockito/mockito.dart';
+import 'package:musicpod/common/data/audio.dart';
+import 'package:musicpod/common/data/audio_type.dart';
+import 'package:musicpod/common/persistence/database.dart';
+import 'package:musicpod/local_audio/service/local_cover_service.dart';
+import 'package:musicpod/local_audio/service/local_audio_service.dart';
+import 'package:musicpod/local_audio/persistence/local_audio_dao.dart';
+import 'package:musicpod/settings/service/settings_service.dart';
 
 import 'local_audio_service_test.mocks.dart';
 
-@GenerateMocks([SettingsService])
+const Audio testMp3 = Audio(
+  audioType: AudioType.local,
+  title: 'test',
+  artist: 'musicpod',
+  genre: 'Black Metal',
+  album: 'podmusic',
+);
+
+const Audio testOgg = Audio(
+  audioType: AudioType.local,
+  title: 'Cold Stones',
+  artist: 'Backslash Zero',
+  album: 'DEMO2017',
+  genre: 'Rock',
+);
+
+@GenerateMocks([LocalCoverService, SettingsService])
 Future<void> main() async {
-  const Audio testMp3 = Audio(
-    title: 'test',
-    artist: 'musicpod',
-    genre: 'Black Metal',
-    album: 'podmusic',
-  );
+  LocalAudioService? service;
+  final localCoverService = MockLocalCoverService();
+  final mockSettingsService = MockSettingsService();
 
-  const Audio testOgg = Audio(
-    title: 'Cold Stones',
-    artist: 'Backslash Zero',
-    album: 'DEMO2017',
-    genre: 'Rock',
-  );
+  setUpAll(() async {
+    when(mockSettingsService.getString(any)).thenReturn(null);
+    when(mockSettingsService.getBool(any)).thenReturn(null);
+    when(mockSettingsService.setValue(any, any)).thenAnswer((_) async => true);
 
-  WidgetsFlutterBinding.ensureInitialized();
-  final service = LocalAudioService(
-    settingsService: MockSettingsService(),
-  );
-  await service.init(testDir: Directory.current.path);
+    final db = Database(NativeDatabase.memory());
+    service = LocalAudioService(
+      localCoverService: localCoverService,
+      settingsService: mockSettingsService,
+      localAudioDao: LocalAudioDao(database: db),
+    );
+    await service?.init(newDirectory: Directory.current.path);
+  });
 
   group('test metadata', () {
-    test('testTestMp3', () {
-      final audios = service.audios;
+    test('testTestMp3', () async {
+      final audios = await service?.findAllTracks();
       expect(audios?.isNotEmpty, true);
 
-      final testTestMp3 =
-          audios?.firstWhereOrNull((e) => e.path?.contains('test.mp3') == true);
+      final testTestMp3 = audios?.firstWhereOrNull(
+        (e) => e.path?.contains('test.mp3') == true,
+      );
       expect(testTestMp3?.title, testMp3.title);
       expect(testTestMp3?.artist, testMp3.artist);
       expect(testTestMp3?.album, testMp3.album);
       expect(testTestMp3?.genre, testMp3.genre);
     });
 
-    test('testTestOgg', () {
-      final audios = service.audios;
+    test('testTestOgg', () async {
+      final audios = await service?.findAllTracks();
       expect(audios?.isNotEmpty, true);
 
-      final coldStones = audios
-          ?.firstWhereOrNull((e) => e.path?.contains('Backslash Zero') == true);
+      final coldStones = audios?.firstWhereOrNull(
+        (e) => e.path?.contains('Backslash Zero') == true,
+      );
       expect(coldStones?.title, testOgg.title);
       expect(coldStones?.artist, testOgg.artist);
       expect(coldStones?.album, testOgg.album);

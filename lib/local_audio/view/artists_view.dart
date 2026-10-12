@@ -1,0 +1,72 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:yaru/yaru.dart';
+
+import '../../app/routing_manager.dart';
+import '../../common/view/no_search_result_page.dart';
+import '../../common/view/round_image_container.dart';
+import '../../common/view/sliver_fill_remaining_progress.dart';
+import '../../common/view/theme.dart';
+import 'artist_image.dart';
+import 'artist_page.dart';
+
+class ArtistsView extends ConsumerWidget {
+  const ArtistsView({
+    super.key,
+    this.artists,
+    this.noResultMessage,
+    this.noResultIcon,
+  });
+
+  final List<String>? artists;
+  final Widget? noResultMessage, noResultIcon;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (artists == null) {
+      return const SliverFillRemainingProgress();
+    }
+
+    if (artists!.isEmpty) {
+      return SliverNoSearchResultPage(
+        icon: noResultIcon,
+        message: noResultMessage,
+      );
+    }
+
+    return SliverGrid.builder(
+      itemCount: artists!.length,
+      gridDelegate: diskGridDelegate,
+      itemBuilder: (context, index) {
+        final artistName = artists!.elementAt(index);
+        final radius = BorderRadius.circular(300);
+
+        return YaruSelectableContainer(
+          key: ValueKey(artistName),
+          selected: false,
+          onTap: () => ref
+              .read(routingManagerProvider.notifier)
+              .push(
+                builder: (_) => ArtistPage(pageId: artistName),
+                pageId: artistName,
+              ),
+          borderRadius: radius,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: double.infinity,
+                child: ArtistImage(
+                  dimension: double.infinity,
+                  artist: artistName,
+                ),
+              ),
+              RoundImageContainerVignette(text: artistName),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}

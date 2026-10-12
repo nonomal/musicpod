@@ -1,0 +1,215 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../app/full_window_mode_manager.dart';
+import '../../common/data/audio_type.dart';
+import '../../common/view/icons.dart';
+import '../../common/view/theme.dart';
+import '../../common/view/ui_constants.dart';
+import '../../extensions/build_context_x.dart';
+import '../../extensions/platform_x.dart';
+import '../../extensions/theme_data_x.dart';
+import '../../radio/view/next_station_button.dart';
+import '../../settings/data/shared_preferences_keys.dart';
+import '../../settings/manager/settings_manager.dart';
+import '../manager/current_audio_manager.dart';
+import '../manager/queue_manager.dart';
+import 'play_button.dart';
+import 'repeat_button.dart';
+import 'seek_button.dart';
+import 'shuffle_button.dart';
+
+class PlayerMainControls extends ConsumerWidget {
+  const PlayerMainControls({
+    super.key,
+    required this.active,
+    this.iconColor,
+    this.avatarColor,
+    this.mainAxisAlignment,
+    this.mainAxisSize = MainAxisSize.max,
+    this.avatarPlayButton = true,
+    this.leading,
+    this.trailing,
+  });
+
+  final bool active;
+  final Color? iconColor, avatarColor;
+  final MainAxisAlignment? mainAxisAlignment;
+  final MainAxisSize mainAxisSize;
+  final bool avatarPlayButton;
+  final Widget? leading;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.theme;
+
+    final audio = ref.watch(currentAudioManagerProvider);
+    final defaultColor =
+        iconColor ??
+        (!active ? theme.disabledColor : theme.colorScheme.onSurface);
+    final queueLength = ref.watch(
+      queueManagerProvider.select((q) => q.audios.length),
+    );
+    final showSkipButtons =
+        queueLength > 1 || audio?.audioType == AudioType.local;
+
+    final playButtonIconColor =
+        iconColor ??
+        (!active
+            ? theme.disabledColor
+            : theme.isLight
+            ? Colors.white
+            : Colors.black);
+    final rawPlayButton = PlayButton(
+      iconColor: playButtonIconColor,
+      active: active,
+      buttonStyle: avatarPlayButton
+          ? IconButton.styleFrom(
+              shape: const CircleBorder(),
+              backgroundColor:
+                  avatarColor ?? (theme.isLight ? Colors.black : Colors.white),
+              foregroundColor: playButtonIconColor,
+              hoverColor: theme.colorScheme.primary.withValues(alpha: 0.5),
+              focusColor: theme.colorScheme.primary.withValues(alpha: 0.5),
+            )
+          : null,
+    );
+
+    final playButton = Consumer(
+      builder: (context, ref, _) {
+        final useYaruTheme =
+            ref.watch(settingsBoolManagerProvider(SPKeys.useYaruTheme)) ??
+            isLinux;
+        final radius = getBigAvatarButtonRadius(useYaruTheme);
+        return avatarPlayButton
+            ? SizedBox.square(dimension: 2 * radius, child: rawPlayButton)
+            : rawPlayButton;
+      },
+    );
+
+    final children = <Widget>[
+      ?leading,
+      switch (audio?.audioType) {
+        AudioType.local => ShuffleButton(
+          active: active,
+          iconColor: defaultColor,
+        ),
+        AudioType.podcast => SeekButton(
+          active: active,
+          forward: false,
+          iconColor: defaultColor,
+        ),
+        AudioType.radio => IconButton(
+          tooltip: context.l10n.skipToLivStream,
+          onPressed: active
+              ? () => ref.read(queueManagerProvider.notifier).playNext()
+              : null,
+          icon: Icon(Iconz.refresh, color: defaultColor),
+        ),
+        _ => const SizedBox.shrink(),
+      },
+      if (showSkipButtons)
+        IconButton(
+          tooltip: context.l10n.back,
+          color: defaultColor,
+          onPressed: !active
+              ? null
+              : () => ref.read(queueManagerProvider.notifier).playPrevious(),
+          icon: Icon(Iconz.skipBackward, color: defaultColor),
+        ),
+      playButton,
+      if (showSkipButtons)
+        IconButton(
+          tooltip: context.l10n.next,
+          color: defaultColor,
+          onPressed: !active || queueLength < 2
+              ? null
+              : () => ref.read(queueManagerProvider.notifier).playNext(),
+          icon: Icon(Iconz.skipForward, color: defaultColor),
+        ),
+
+      switch (audio?.audioType) {
+        AudioType.local => PlaylistModeButton(
+          active: active,
+          iconColor: defaultColor,
+        ),
+        AudioType.podcast => SeekButton(
+          active: active,
+          iconColor: defaultColor,
+        ),
+        AudioType.radio => NextStationButton(
+          iconColor: defaultColor,
+          active: active,
+        ),
+        _ => const SizedBox.shrink(),
+      },
+      ?trailing,
+    ];
+
+    return Row(
+      mainAxisSize: mainAxisSize,
+      mainAxisAlignment:
+          mainAxisAlignment ??
+          (isMobile ? MainAxisAlignment.spaceEvenly : MainAxisAlignment.center),
+      spacing: isMobile ? kSmallestSpace : kMediumSpace,
+      children: children,
+    );
+  }
+}
+
+class PlayerCompactControls extends ConsumerWidget {
+  const PlayerCompactControls({
+    super.key,
+    this.iconColor,
+    this.avatarColor,
+    this.mainAxisAlignment = MainAxisAlignment.center,
+    this.mainAxisSize = MainAxisSize.max,
+  });
+
+  final Color? iconColor, avatarColor;
+  final MainAxisAlignment mainAxisAlignment;
+  final MainAxisSize mainAxisSize;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.theme;
+    final audio = ref.watch(currentAudioManagerProvider);
+
+    final active = audio != null;
+
+    final rawPlayButton = PlayButton(
+      iconColor: iconColor ?? (theme.isLight ? Colors.white : Colors.black),
+      active: active,
+    );
+
+    final useYaruTheme =
+        ref.watch(settingsBoolManagerProvider(SPKeys.useYaruTheme)) ?? isLinux;
+    final radius = getSmallAvatarButtonRadius(useYaruTheme);
+    final playButtonWidget = CircleAvatar(
+      radius: radius,
+      backgroundColor:
+          avatarColor ?? (theme.isLight ? Colors.black : Colors.white),
+      child: SizedBox.square(dimension: 2 * radius, child: rawPlayButton),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Row(
+        spacing: kMediumSpace,
+        mainAxisSize: mainAxisSize,
+        mainAxisAlignment: mainAxisAlignment,
+        children: [
+          ShuffleButton(active: active),
+          playButtonWidget,
+          IconButton(
+            onPressed: () => ref
+                .read(fullWindowModeManagerProvider.notifier)
+                .setFullWindowMode(true),
+            icon: Icon(Iconz.fullScreen),
+          ),
+        ],
+      ),
+    );
+  }
+}

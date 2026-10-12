@@ -1,0 +1,153 @@
+import 'package:flutter/material.dart';
+
+import '../../common/data/audio_type.dart';
+import '../../common/view/audio_page_type.dart';
+import '../../common/view/icons.dart';
+import '../../common/view/side_bar_fall_back_image.dart';
+import '../../common/view/theme.dart';
+import '../../custom_content/view/custom_content_page.dart';
+import '../../extensions/build_context_x.dart';
+import '../../local_audio/view/album_page.dart';
+import '../../local_audio/view/liked_audio_page.dart';
+import '../../local_audio/view/local_audio_page.dart';
+import '../../local_audio/view/playlist_page.dart';
+import '../../podcasts/view/podcast_page.dart';
+import '../../podcasts/view/podcast_page_side_bar_icon.dart';
+import '../../podcasts/view/podcast_page_title.dart';
+import '../../podcasts/view/podcasts_page.dart';
+import '../../radio/view/radio_page.dart';
+import '../../radio/view/station_page.dart';
+import '../../radio/view/station_page_icon.dart';
+import '../../radio/view/station_title.dart';
+import '../../search/view/search_page.dart';
+import '../../settings/view/settings_page.dart';
+import '../page_ids.dart';
+import 'main_page_icon.dart';
+import 'master_item.dart';
+
+Iterable<MasterItem> getAllMasterItems({
+  required List<String> playlistIDs,
+  required List<int> pinnedAlbumIDs,
+  required Set<String> starredStationIDs,
+  required List<String> subscribedPodcastFeedUrls,
+}) => [
+  ...permanentMasterItems,
+  ...createPlaylistMasterItems(playlistIDs),
+  ...createPodcastMasterItems(subscribedPodcastFeedUrls),
+  ...createPinnedAlbumsMasterItems(pinnedAlbumIDs),
+  ...createStarredStationsMasterItems(starredStationIDs),
+];
+
+Iterable<MasterItem> permanentMasterItems = [
+  MasterItem(
+    titleBuilder: (context) => Text(context.l10n.search),
+    pageBuilder: (_) => const SearchPage(),
+    iconBuilder: (_) => Icon(Iconz.search),
+    pageId: PageIDs.searchPage,
+    audioPageType: AudioPageType.none,
+  ),
+  MasterItem(
+    titleBuilder: (context) => Text(context.l10n.local),
+    pageBuilder: (_) => const LocalAudioPage(),
+    iconBuilder: (selected) =>
+        MainPageIcon(audioType: AudioType.local, selected: selected),
+    pageId: PageIDs.localAudio,
+    audioPageType: AudioPageType.none,
+  ),
+  MasterItem(
+    titleBuilder: (context) => Text(context.l10n.radio),
+    pageBuilder: (_) => const RadioPage(),
+    iconBuilder: (selected) =>
+        MainPageIcon(audioType: AudioType.radio, selected: selected),
+    pageId: PageIDs.radio,
+    audioPageType: AudioPageType.none,
+  ),
+  MasterItem(
+    titleBuilder: (context) => Text(context.l10n.podcasts),
+    pageBuilder: (_) => const PodcastsPage(),
+    iconBuilder: (selected) =>
+        MainPageIcon(audioType: AudioType.podcast, selected: selected),
+    pageId: PageIDs.podcasts,
+    audioPageType: AudioPageType.none,
+  ),
+  MasterItem(
+    iconBuilder: (selected) => Icon(Iconz.plus),
+    titleBuilder: (context) => Text(context.l10n.add),
+    pageBuilder: (_) => const CustomContentPage(),
+    pageId: PageIDs.customContent,
+    audioPageType: AudioPageType.none,
+  ),
+  MasterItem(
+    titleBuilder: (context) => Text(context.l10n.likedSongs),
+    pageId: PageIDs.likedAudios,
+    pageBuilder: (_) => const LikedAudioPage(),
+    subtitleBuilder: (context) => Text(context.l10n.playlist),
+    iconBuilder: (selected) => LikedAudioPageIcon(selected: selected),
+    audioPageType: AudioPageType.likedAudio,
+  ),
+  MasterItem(
+    titleBuilder: (context) => Text(context.l10n.settings),
+    iconBuilder: (selected) =>
+        Icon(selected ? Iconz.settingsFilled : Iconz.settings),
+    pageBuilder: (_) => const SettingsPage(),
+    pageId: PageIDs.settings,
+    audioPageType: AudioPageType.none,
+  ),
+];
+
+Iterable<MasterItem> createPlaylistMasterItems(List<String> playlistIDs) =>
+    playlistIDs.map(
+      (id) => MasterItem(
+        titleBuilder: (context) => Text(id),
+        subtitleBuilder: (context) => Text(context.l10n.playlist),
+        pageId: id,
+        pageBuilder: (_) => PlaylistPage(pageId: id),
+        iconBuilder: (selected) => SideBarFallBackImage(
+          color: getAlphabetColor(id),
+          child: Icon(Iconz.playlist),
+        ),
+        audioPageType: AudioPageType.playlist,
+      ),
+    );
+
+Iterable<MasterItem> createStarredStationsMasterItems(
+  Set<String> starredStationIDs,
+) => starredStationIDs.map(
+  (uuid) => MasterItem(
+    titleBuilder: (_) => StationTitle(uuid: uuid),
+    subtitleBuilder: (context) => Text(context.l10n.station),
+    pageId: uuid,
+    pageBuilder: (_) => StationPage(uuid: uuid),
+    iconBuilder: (selected) => StationPageIcon(
+      uuid: uuid,
+      selected: selected,
+      dimension: sideBarImageSize,
+    ),
+    audioPageType: AudioPageType.radio,
+  ),
+);
+
+Iterable<MasterItem> createPinnedAlbumsMasterItems(List<int> pinnedAlbums) =>
+    pinnedAlbums.map(
+      (id) => MasterItem(
+        titleBuilder: (context) => AlbumPageSideBarName(albumId: id),
+        subtitleBuilder: (context) => AlbumPageSideBarArtist(albumId: id),
+        pageId: id.toString(),
+        pageBuilder: (_) => AlbumPage(id: id),
+        iconBuilder: (selected) => AlbumPageSideBarIcon(albumId: id),
+        audioPageType: AudioPageType.album,
+      ),
+    );
+
+Iterable<MasterItem> createPodcastMasterItems(List<String> podcastFeedUrls) =>
+    podcastFeedUrls.map(
+      (feedUrl) => MasterItem(
+        titleBuilder: (_) => PodcastPageTitle(feedUrl: feedUrl),
+        subtitleBuilder: (_) => PodcastPageSubTitle(feedUrl: feedUrl),
+        pageId: feedUrl,
+        pageBuilder: (_) => PodcastPage(feedUrl: feedUrl),
+        iconBuilder: (selected) =>
+            PodcastPageSideBarIcon(key: ValueKey(feedUrl), feedUrl: feedUrl),
+        audioPageType: AudioPageType.podcast,
+      ),
+    );

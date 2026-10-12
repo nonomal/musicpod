@@ -1,0 +1,140 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../common/view/audio_page_type.dart';
+import '../../common/view/audio_tile_option_button.dart';
+import '../../common/view/avatar_play_button.dart';
+import '../../common/view/confirm.dart';
+import '../../common/view/icons.dart';
+import '../../common/view/theme.dart';
+import '../../extensions/build_context_x.dart';
+import '../../player/manager/current_audio_manager.dart';
+import '../../player/manager/play_pause_manager.dart';
+import '../../player/manager/queue_manager.dart';
+import '../manager/episodes_manager.dart';
+import '../manager/podcast_short_info_manager.dart';
+import 'podcast_mark_done_button.dart';
+import 'podcast_page_search_button.dart';
+import 'podcast_reorder_button.dart';
+import 'podcast_replay_button.dart';
+import 'podcast_sub_button.dart';
+
+class PodcastPageControlPanel extends ConsumerWidget {
+  const PodcastPageControlPanel({super.key, required this.feedUrl});
+
+  final String feedUrl;
+
+  void _onPlayAllPressed(BuildContext context, WidgetRef ref) {
+    final pageIsQueue = ref.read(queueManagerProvider).name == feedUrl;
+
+    if (pageIsQueue) {
+      ref.read(playPauseManagerProvider.notifier).playOrPause();
+      return;
+    }
+
+    final episodesState = ref.read(episodesManagerProvider(feedUrl)).value;
+    final allEpisodes = episodesState?.allEpisodes ?? [];
+    final loadedEpisodes = episodesState?.episodes ?? [];
+
+    if (allEpisodes.isEmpty) return;
+
+    if (!(episodesState?.hasMore ?? false) ||
+        loadedEpisodes.length >= allEpisodes.length) {
+      ref
+          .read(currentAudioManagerProvider.notifier)
+          .play(audios: allEpisodes, listName: feedUrl);
+      return;
+    }
+
+    ConfirmationDialog.show(
+      dialogWidth: DialogWidth.medium,
+      modalLevel: ModalLevel.success,
+      headerIconData: Iconz.playFilled,
+      showCancel: false,
+      context: context,
+      title: Text(context.l10n.playAll + '?'),
+      confirmLabel: context.l10n.playAllEpisodes(allEpisodes.length.toString()),
+      onConfirm: () => ref
+          .read(currentAudioManagerProvider.notifier)
+          .play(audios: allEpisodes, listName: feedUrl),
+      additionalActions: [
+        OutlinedButton(
+          onPressed: () {
+            Navigator.pop(context);
+            ref
+                .read(currentAudioManagerProvider.notifier)
+                .play(audios: loadedEpisodes, listName: feedUrl);
+          },
+          child: Text(
+            context.l10n.playOnlyLoadedEpisodes(
+              loadedEpisodes.length.toString(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final shortInfo = ref.watch(podcastShortInfoManagerProvider(feedUrl)).value;
+
+    final artist = shortInfo?.artist ?? '';
+    final title = shortInfo?.name ?? '';
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: space(
+        children: [
+          PodcastReplayButton(feedUrl: feedUrl),
+          PodcastMarkDoneButton(feedUrl: feedUrl),
+          PodcastSubButton(
+            pageId: feedUrl,
+            imageUrl: shortInfo?.imageUrl,
+            name: title,
+            artist: artist,
+          ),
+          AvatarPlayButton(
+            pageId: feedUrl,
+            audioPageType: AudioPageType.podcast,
+            onPressed: () => _onPlayAllPressed(context, ref),
+          ),
+          PodcastPageSearchButton(feedUrl: feedUrl),
+          PodcastReorderButton(feedUrl: feedUrl),
+          PodcastPageOptionButton(
+            feedUrl: feedUrl,
+            title: title,
+            artist: artist,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PodcastPageOptionButton extends ConsumerWidget {
+  const PodcastPageOptionButton({
+    super.key,
+    required this.feedUrl,
+    this.title,
+    this.artist,
+  });
+
+  final String feedUrl;
+  final String? title;
+  final String? artist;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final episodeResults = ref.watch(episodesManagerProvider(feedUrl));
+    return AudioTileOptionButton(
+      enabled: !episodeResults.isLoading && !episodeResults.hasError,
+      audios: episodeResults.value?.episodes ?? [],
+      playlistId: feedUrl,
+      allowRemove: false,
+      searchTerm: title ?? '',
+      title: Text(title ?? ''),
+      subTitle: Text(artist ?? ''),
+    );
+  }
+}

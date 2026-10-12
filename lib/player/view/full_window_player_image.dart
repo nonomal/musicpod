@@ -1,0 +1,68 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:yaru/constants.dart';
+
+import '../../common/view/ui_constants.dart';
+import '../../local_audio/view/local_cover.dart';
+import '../manager/current_audio_manager.dart';
+import 'player_fall_back_image.dart';
+import 'player_remote_source_image.dart';
+
+class FullWindowPlayerImage extends ConsumerWidget {
+  const FullWindowPlayerImage({
+    super.key,
+    this.fit,
+    this.dimension,
+    this.borderRadius,
+    this.emptyFallBack = false,
+  });
+
+  final BoxFit? fit;
+  final double? dimension;
+  final BorderRadius? borderRadius;
+  final bool emptyFallBack;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final audio = ref.watch(currentAudioManagerProvider);
+
+    final fallBackImage = PlayerFallBackImage(
+      noIcon: emptyFallBack,
+      audioType: audio?.audioType,
+      height: dimension ?? kFullWindowPlayerImageSize,
+      width: dimension ?? kFullWindowPlayerImageSize,
+    );
+
+    Widget image;
+    if (audio?.canHaveLocalCover == true) {
+      image = LocalCover(
+        key: ValueKey(audio!.albumDbId!),
+        albumId: audio.albumDbId!,
+        dimension: dimension ?? kFullWindowPlayerImageSize,
+        fit: fit ?? BoxFit.fitHeight,
+        fallback: fallBackImage,
+      );
+    } else {
+      image = PlayerRemoteSourceImage(
+        height: dimension ?? kFullWindowPlayerImageSize,
+        width: dimension ?? kFullWindowPlayerImageSize,
+        fit: fit,
+        fallBackIcon: fallBackImage,
+        errorIcon: fallBackImage,
+      );
+    }
+
+    final bR = borderRadius ?? BorderRadius.circular(kYaruContainerRadius);
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: bR),
+      child: ClipRRect(
+        borderRadius: bR,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: image,
+        ),
+      ),
+    );
+  }
+}

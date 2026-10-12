@@ -1,0 +1,83 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:radio_browser_api/radio_browser_api.dart';
+import 'package:yaru/yaru.dart';
+
+import '../../app/page_ids.dart';
+import '../../app/routing_manager.dart';
+import '../../common/data/audio_type.dart';
+import '../../common/view/no_search_result_page.dart';
+import '../../common/view/round_image_container.dart';
+import '../../common/view/theme.dart';
+import '../../common/view/ui_constants.dart';
+import '../../extensions/build_context_x.dart';
+import '../../search/manager/search_manager.dart';
+import '../../search/data/search_type.dart';
+import '../manager/radio_fav_tag_manager.dart';
+import 'open_radio_discover_page_button.dart';
+
+class FavoriteRadioTagsGrid extends ConsumerWidget {
+  const FavoriteRadioTagsGrid({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final favTags = ref.watch(radioFavTagManagerProvider).value ?? {};
+    final favTagsLength = favTags.length;
+
+    if (favTagsLength == 0) {
+      return SliverNoSearchResultPage(
+        message: Column(
+          children: [
+            Text(context.l10n.noStarredTags),
+            const SizedBox(height: kLargestSpace),
+            const OpenRadioSearchButton(searchType: SearchType.radioTag),
+          ],
+        ),
+      );
+    }
+
+    return SliverGrid.builder(
+      gridDelegate: diskGridDelegate,
+      itemCount: favTagsLength,
+      itemBuilder: (context, index) {
+        final text = favTags.elementAt(index);
+        final color = getAlphabetColor(text).scale(saturation: -0.2);
+        final textColor = contrastColor(color);
+        final tag = favTags.elementAt(index);
+        return YaruSelectableContainer(
+          selected: false,
+          onTap: () {
+            ref
+                .read(routingManagerProvider.notifier)
+                .push(pageId: PageIDs.searchPage);
+            ref.read(searchManagerProvider.notifier)
+              ..setSearchType(SearchType.radioTag)
+              ..setTag(Tag(name: tag.toLowerCase(), stationCount: 1))
+              ..setAudioType(AudioType.radio)
+              ..search(clear: true);
+          },
+          borderRadius: BorderRadius.circular(300),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: double.infinity,
+                child: RoundImageContainer(
+                  images: [],
+                  fallBackText: text,
+                  backgroundColor: color,
+                ),
+              ),
+              RoundImageContainerVignette(
+                text: text,
+                backgroundColor: Colors.transparent,
+                textColor: textColor,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}

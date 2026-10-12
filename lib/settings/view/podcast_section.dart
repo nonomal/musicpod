@@ -1,0 +1,318 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../dependencies.dart';
+import 'package:podcast_search/podcast_search.dart';
+import 'package:yaru/yaru.dart';
+
+import '../../common/view/common_widgets.dart';
+import '../../common/view/confirm.dart';
+import '../../common/view/icons.dart';
+import '../../common/view/ui_constants.dart';
+import '../../custom_content/service/custom_content_service.dart';
+import '../../extensions/build_context_x.dart';
+import '../../extensions/string_x.dart';
+import '../../podcasts/manager/download_manager.dart';
+import '../../podcasts/manager/podcast_load_genres_manager.dart';
+import '../../podcasts/service/podcast_service.dart';
+import '../data/shared_preferences_keys.dart';
+import '../manager/settings_manager.dart';
+import '../manager/wipe_manager.dart';
+import 'settings_list_tile.dart';
+import 'settings_section.dart';
+
+class PodcastSection extends ConsumerStatefulWidget {
+  const PodcastSection({super.key});
+
+  @override
+  ConsumerState<PodcastSection> createState() => _PodcastSectionState();
+}
+
+class _PodcastSectionState extends ConsumerState<PodcastSection> {
+  String? _initialKey;
+  String? _initialSecret;
+  late TextEditingController _keyController, _secretController;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialKey = ref.read(
+      settingsStringManagerProvider(SPKeys.podcastIndexApiKey),
+    );
+    _keyController = TextEditingController(text: _initialKey);
+    _initialSecret = ref.read(
+      settingsStringManagerProvider(SPKeys.podcastIndexApiSecret),
+    );
+    _secretController = TextEditingController(text: _initialSecret);
+  }
+
+  @override
+  void dispose() {
+    _keyController.dispose();
+    _secretController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.theme;
+    final l10n = context.l10n;
+
+    final usePodcastIndex =
+        ref.watch(settingsBoolManagerProvider(SPKeys.usePodcastIndex)) ?? false;
+    final podcastIndexApiKey = ref.watch(
+      settingsStringManagerProvider(SPKeys.podcastIndexApiKey),
+    );
+    final podcastIndexApiSecret = ref.watch(
+      settingsStringManagerProvider(SPKeys.podcastIndexApiSecret),
+    );
+
+    return SettingsSection(
+      heading: l10n.podcasts,
+      children: [
+        const _DownloadsTile(),
+        const _ControlCollectionTile(),
+        SettingsListTile(
+          position: usePodcastIndex
+              ? ListTilePosition.middle
+              : ListTilePosition.last,
+          title: Text(l10n.usePodcastIndex),
+          trailing: CommonSwitch(
+            value: usePodcastIndex,
+            onChanged: (v) {
+              if (!v) {
+                ConfirmationDialog.show(
+                  modalLevel: ModalLevel.warning,
+                  context: context,
+                  title: Text(l10n.iTunes + '?'),
+                  onConfirm: () async {
+                    di<PodcastService>().initSearchProvider(
+                      const ITunesProvider(),
+                    );
+                    await di<PodcastService>().loadGenres(force: true);
+
+                    await ref
+                        .read(
+                          settingsBoolManagerProvider(
+                            SPKeys.usePodcastIndex,
+                          ).notifier,
+                        )
+                        .set(v);
+
+                    await ref
+                        .read(podcastLoadGenresManagerProvider.notifier)
+                        .loadGenres(force: true);
+                  },
+                );
+              } else {
+                ref
+                    .read(
+                      settingsBoolManagerProvider(
+                        SPKeys.usePodcastIndex,
+                      ).notifier,
+                    )
+                    .set(v);
+              }
+            },
+          ),
+        ),
+        if (usePodcastIndex) ...[
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: TextField(
+              controller: _keyController,
+              onChanged: (v) => setState(() => _initialKey = v),
+              obscureText: true,
+              decoration: InputDecoration(
+                label: Text(SPKeys.podcastIndexApiKey.camelToSentence),
+                suffixIcon: IconButton(
+                  tooltip: l10n.save,
+                  onPressed: () => ref
+                      .read(
+                        settingsStringManagerProvider(
+                          SPKeys.podcastIndexApiKey,
+                        ).notifier,
+                      )
+                      .set(_keyController.text),
+                  icon: Icon(
+                    Iconz.check,
+                    color: podcastIndexApiKey == _initialKey
+                        ? theme.colorScheme.success
+                        : theme.colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(
+              left: 8,
+              right: 8,
+              bottom: kLargestSpace,
+            ),
+            child: ValueListenableBuilder(
+              valueListenable: _keyController,
+              builder: (context, value, child) {
+                return TextField(
+                  enabled: value.text.isNotEmpty,
+                  controller: _secretController,
+                  onChanged: (v) => setState(() => _initialSecret = v),
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    label: Text(SPKeys.podcastIndexApiSecret.camelToSentence),
+                    suffixIcon: IconButton(
+                      tooltip: l10n.save,
+                      onPressed: () => ref
+                          .read(
+                            settingsStringManagerProvider(
+                              SPKeys.podcastIndexApiSecret,
+                            ).notifier,
+                          )
+                          .set(_secretController.text),
+                      icon: Icon(
+                        Iconz.check,
+                        color: podcastIndexApiSecret == _initialSecret
+                            ? theme.colorScheme.success
+                            : theme.colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          ValueListenableBuilder(
+            valueListenable: _secretController,
+            builder: (context, value, child) {
+              return SettingsListTile(
+                position: ListTilePosition.last,
+                trailing: ElevatedButton(
+                  onPressed: value.text.isEmpty
+                      ? null
+                      : () => ConfirmationDialog.show(
+                          context: context,
+                          title: Text(l10n.usePodcastIndex + '?'),
+                          onConfirm: () async {
+                            di<PodcastService>().initSearchProvider(
+                              PodcastIndexProvider(
+                                key: podcastIndexApiKey!,
+                                secret: podcastIndexApiSecret!,
+                              ),
+                            );
+                            await di<PodcastService>().loadGenres(force: true);
+                          },
+                        ),
+                  child: Text(context.l10n.confirm),
+                ),
+              );
+            },
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ControlCollectionTile extends ConsumerWidget {
+  const _ControlCollectionTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+
+    return SettingsListTile(
+      position: ListTilePosition.middle,
+      title: Text(l10n.podcastSubscriptions),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: Icon(
+              Iconz.export,
+              semanticLabel: context.l10n.exportPodcastsToOpmlFile,
+            ),
+            tooltip: context.l10n.exportPodcastsToOpmlFile,
+            onPressed: () => ConfirmationDialog.show(
+              context: context,
+              initialFuture: () =>
+                  di<CustomContentService>().exportPodcastsToOpmlFile(),
+              cancelLabel: context.l10n.back,
+              loadingTitle: Text(context.l10n.exportingPodcastsPleaseWait),
+            ),
+          ),
+          IconButton(
+            icon: Icon(
+              Iconz.import,
+              semanticLabel: context.l10n.importPodcastsFromOpmlFile,
+            ),
+            tooltip: context.l10n.importPodcastsFromOpmlFile,
+            onPressed: () => ConfirmationDialog.show(
+              context: context,
+              initialFuture: () =>
+                  di<CustomContentService>().importPodcastsFromOpmlFile(),
+              loadingTitle: Text(context.l10n.importingPodcastsPleaseWait),
+              cancelLabel: context.l10n.back,
+            ),
+          ),
+          IconButton(
+            icon: Icon(Iconz.remove),
+            tooltip: context.l10n.podcasts,
+            onPressed: () => ConfirmationDialog.show(
+              modalLevel: ModalLevel.error,
+              headerIconData: Iconz.remove,
+              context: context,
+              title: Text(context.l10n.removeAllPodcastsConfirm),
+              content: Text(context.l10n.removeAllPodcastsDescription),
+              confirmLabel: context.l10n.ok,
+              cancelLabel: context.l10n.cancel,
+              onConfirm: () => ref.read(wipeManagerProvider.notifier).wipe({
+                WipeType.podcasts,
+              }),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DownloadsTile extends ConsumerWidget {
+  const _DownloadsTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+
+    final downloadState = ref.watch(downloadManagerProvider).value;
+    final downloadsDir = downloadState?.downloadsDirectory;
+
+    return SettingsListTile(
+      position: ListTilePosition.first,
+      title: Text(l10n.downloadsDirectory),
+      subtitle: Text(downloadsDir ?? ''),
+      trailing: ElevatedButton(
+        onPressed: () {
+          context.dialog(
+            (context) => ConfirmationDialog(
+              content: SizedBox(
+                width: 300,
+                child: Text(
+                  l10n.downloadsChangeWarning,
+                  style: context.textTheme.bodyLarge,
+                ),
+              ),
+              onConfirm: () async => ref
+                  .read(downloadManagerProvider.notifier)
+                  .setDownloadsDirectory(getDefault: false),
+            ),
+          );
+        },
+        child: Text(
+          l10n.select,
+          textAlign: TextAlign.center,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+}

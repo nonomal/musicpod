@@ -1,0 +1,895 @@
+// ignore_for_file: unnecessary_parenthesis
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:injectable/injectable.dart';
+import 'package:media_kit/media_kit.dart' hide PlayerState;
+import 'package:media_kit_video/media_kit_video.dart';
+import 'package:yaru/yaru.dart';
+
+import '../../common/data/audio.dart';
+import '../../common/data/audio_type.dart';
+import '../../common/logging.dart';
+import '../../expose/service/expose_service.dart';
+import '../../extensions/media_file_x.dart';
+import '../../extensions/string_x.dart';
+import '../../local_audio/service/local_cover_service.dart';
+import '../../podcasts/service/podcast_service.dart';
+import '../data/play_timeout_exception.dart';
+import '../data/player_change.dart';
+import '../data/queue.dart';
+import '../persistence/player_dao.dart';
+
+@singleton
+// Note: to detach the player service from the actual library to play media
+// this service contains a lot of fields and streams
+// that might look like overhead, but helps if we ever need to change the library or the way we play media in the future.
+// This also has the advantage that we can use our own type for the media files: [Audio] instead
+// of the library's [Media] type
+// but this also means that we need our own [Queue] type instead of the library's [Playlist] type
+class PlayerService {
+  PlayerService({
+    required VideoController controller,
+    required ExposeService exposeService,
+    required LocalCoverService localCoverService,
+    required PodcastService podcastService,
+    required PlayerDao dao,
+  }) : _controller = controller,
+       _exposeService = exposeService,
+       _localCoverService = localCoverService,
+       _podcastService = podcastService,
+       _dao = dao;
+
+  // External dependencies
+  final ExposeService _exposeService;
+  final LocalCoverService _localCoverService;
+  final VideoController _controller;
+  final PodcastService _podcastService;
+  final PlayerDao _dao;
+
+  // MediaKit getters
+  VideoController get controller => _controller;
+  Player get player => _controller.player;
+
+  // Helper stream subscriptions
+  StreamSubscription<bool>? _isPlayingSub;
+  StreamSubscription<Duration>? _durationSub;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration>? _bufferSub;
+  StreamSubscription<bool>? _isCompletedSub;
+  StreamSubscription<double>? _volumeSub;
+  StreamSubscription<Tracks>? _tracksSub;
+  StreamSubscription<double>? _rateSub;
+  StreamSubscription<String>? _errorSub;
+
+  // Used to notify whoever is listening
+  final _changesController = StreamController<PlayerChange>.broadcast();
+  Stream<PlayerChange> get changes => _changesController.stream;
+  Stream<PlayerChange> get propertiesChanged => _changesController.stream;
+
+  /// All stream subscriptions and the initial [PlayerState] are set here
+  @PostConstruct(preResolve: true)
+  Future<void> init() async {
+    _isPlayingSub ??= player.stream.playing.listen((value) {
+      setIsPlaying(value);
+    });
+
+    _errorSub ??= player.stream.error.listen((event) {
+      _messageController.addError(event);
+    });
+
+    _durationSub ??= player.stream.duration.listen((newDuration) {
+      if (newDuration.inSeconds != 0) {
+        setDuration(newDuration);
+      }
+    });
+
+    _positionSub ??= player.stream.position.listen((newPosition) {
+      setPosition(newPosition);
+    });
+
+    _bufferSub ??= player.stream.buffer.listen((event) {
+      setBuffer(event);
+    });
+
+    _isCompletedSub ??= player.stream.completed.listen((value) async {
+      if (value) {
+        if (_playlistMode == PlaylistMode.single) {
+          await _setAudio(_audio);
+          await _play();
+        } else if (_playlistMode == PlaylistMode.loop ||
+            _audio != null &&
+                queue.audios.contains(_audio) &&
+                queue.audios.indexOf(_audio!) < queue.audios.length - 1) {
+          await playNext();
+        }
+      }
+    });
+
+    _volumeSub ??= player.stream.volume.listen((value) {
+      _volume = value;
+      _changesController.add(VolumeChange(_volume));
+    });
+
+    _rateSub ??= player.stream.rate.listen((value) {
+      _rate = value;
+      _changesController.add(RateChange(_rate));
+    });
+
+    _tracksSub ??= player.stream.tracks.listen((tracks) {
+      _setIsVideo(false);
+      for (var track in tracks.video) {
+        if (track.fps != null && track.fps! > 1) {
+          _setIsVideo(true);
+          break;
+        }
+      }
+    });
+
+    if (_audio == null && _firstPlay) {
+      await _loadPlayerState();
+
+      await _loadLastPositions();
+    }
+  }
+
+  /// All subscriptions, native media trays and the pause timer need to be closed and disposed
+  Future<void> dispose({required bool disposePlayer}) async {
+    await _isPlayingSub?.cancel();
+    _isPlayingSub = null;
+    await _positionSub?.cancel();
+    _positionSub = null;
+    await _durationSub?.cancel();
+    _durationSub = null;
+    await _isCompletedSub?.cancel();
+    _isCompletedSub = null;
+    await _volumeSub?.cancel();
+    _volumeSub = null;
+    await _tracksSub?.cancel();
+    _tracksSub = null;
+    await _rateSub?.cancel();
+    _rateSub = null;
+    await _bufferSub?.cancel();
+    _bufferSub = null;
+    await _errorSub?.cancel();
+    _errorSub = null;
+    _timer?.cancel();
+    _timer = null;
+    if (disposePlayer) {
+      await player.dispose();
+    }
+  }
+
+  Queue? _oldQueue;
+  Queue _queue = const Queue.empty();
+  Queue get queue => _queue;
+  void setQueue(Queue value) {
+    if (value.audios.isEmpty) return;
+    _queue = value;
+    _changesController.add(QueueChange(_queue));
+  }
+
+  bool _queueAutoScroll = true;
+  bool get queueAutoScroll => _queueAutoScroll;
+  void toggleQueueAutoScroll() {
+    _queueAutoScroll = !_queueAutoScroll;
+    _changesController.add(const ResetChange());
+  }
+
+  void clearQueue() {
+    if (_audio != null) {
+      _queue = Queue(name: _queue.name, audios: [_audio!]);
+      _nextAudio = _audio;
+    } else {
+      _queue = const Queue.empty();
+      _nextAudio = null;
+    }
+    _oldQueue = const Queue.empty();
+    _changesController.add(QueueChange(_queue));
+  }
+
+  StreamController<Audio?> _newAudioControllerStream =
+      StreamController<Audio?>.broadcast();
+  Stream<Audio?> get newAudioStream => _newAudioControllerStream.stream;
+  Audio? _audio;
+  Audio? get audio => _audio;
+  Future<void> _setAudio(Audio? value) async {
+    if (value == _audio) return;
+    if (_color != null && value?.audioType != AudioType.local) {
+      _setColor(null);
+    }
+    if (value?.audioType != _audio?.audioType) {
+      final oldShuffle = _shuffle;
+      _shuffle = false;
+      _oldQueue = const Queue.empty();
+      if (oldShuffle != _shuffle) {
+        _changesController.add(const ShuffleChange(false));
+      }
+      final oldMode = _playlistMode;
+      if (value?.isRadio ?? false) {
+        // NOTE: this is when the radio stream might stop/stutter/end, so it should start again immediately
+        _playlistMode = PlaylistMode.loop;
+      } else {
+        _playlistMode = PlaylistMode.none;
+      }
+      if (oldMode != _playlistMode) {
+        _changesController.add(PlaylistModeChange(_playlistMode));
+      }
+      await setRate(1);
+    }
+    _audio = value;
+    _changesController.add(AudioChange(_audio));
+    _newAudioControllerStream.add(_audio);
+    await _setLocalColor(_audio);
+  }
+
+  bool _isVideo = false;
+  bool get isVideo => _isVideo;
+  void _setIsVideo(bool value) {
+    if (value == _isVideo) return;
+    Logger.i('Loaded a video: $value', tag: '$PlayerService');
+    _isVideo = value;
+    _changesController.add(IsVideoChange(_isVideo));
+  }
+
+  Audio? _nextAudio;
+  Audio? get nextAudio => _nextAudio;
+  set nextAudio(Audio? value) {
+    if (value == _nextAudio) return;
+    _nextAudio = value;
+    _changesController.add(NextAudioChange(_nextAudio));
+  }
+
+  bool _isPlaying = false;
+  bool get isPlaying => _isPlaying;
+  void setIsPlaying(bool value) {
+    if (value == _isPlaying) return;
+    _isPlaying = value;
+    _changesController.add(IsPlayingChange(_isPlaying));
+    _setMediaControlsIsPlaying(value);
+  }
+
+  Duration? _duration;
+  Duration? get duration => _duration;
+  void setDuration(Duration? value) {
+    if (value?.inSeconds == _duration?.inSeconds) return;
+    _duration = value;
+    _changesController.add(DurationChange(_duration));
+    _setMediaControlDuration(value);
+  }
+
+  Duration? _position = Duration.zero;
+  Duration? get position => _position;
+  void setPosition(Duration? value) {
+    if (position?.inSeconds == value?.inSeconds) return;
+    _position = value;
+    _changesController.add(PositionChange(_position));
+    _setMediaControlPosition(value);
+  }
+
+  Duration? _buffer = Duration.zero;
+  Duration? get buffer => _buffer;
+  void setBuffer(Duration? value) {
+    if (buffer?.inSeconds == value?.inSeconds) return;
+    _buffer = value;
+    _changesController.add(BufferChange(_buffer));
+  }
+
+  PlaylistMode _playlistMode = PlaylistMode.none;
+  PlaylistMode get playlistMode => _playlistMode;
+  void setPlaylistMode() {
+    _playlistMode = switch (_playlistMode) {
+      PlaylistMode.none => PlaylistMode.loop,
+      PlaylistMode.loop => PlaylistMode.single,
+      PlaylistMode.single => PlaylistMode.none,
+    };
+    _estimateNext();
+    _changesController.add(PlaylistModeChange(_playlistMode));
+  }
+
+  bool _shuffle = false;
+  bool get shuffle => _shuffle;
+  Future<void> setShuffle(bool value) async {
+    if (value == _shuffle) return;
+    _shuffle = value;
+    if (value) {
+      _oldQueue = _queue;
+      final queue = Queue(
+        name: _queue.name,
+        audios: List.from(_queue.audios)..shuffle(),
+      );
+      setQueue(queue);
+    } else {
+      if (_oldQueue != null &&
+          _oldQueue?.name != null &&
+          _oldQueue!.name == _queue.name &&
+          _oldQueue!.audios.isNotEmpty) {
+        setQueue(_oldQueue!);
+      }
+      _oldQueue = const Queue.empty();
+    }
+    await _estimateNext();
+    _changesController.add(ShuffleChange(_shuffle));
+  }
+
+  double? _volume;
+  double? get volume => _volume;
+  Future<void> setVolume(double value) async {
+    if (value == _volume) return;
+    await player.setVolume(value);
+  }
+
+  double _rate = 1.0;
+  double get rate => _rate;
+  Future<void> setRate(double value) async {
+    if (value == _rate) return;
+    await player.setRate(value);
+  }
+
+  final _messageController = StreamController<String>.broadcast();
+  Stream<String> get messageStream => _messageController.stream.map((e) => e);
+
+  /// To not mess up with the queue, this method is private
+  /// Use [play] instead
+  bool _firstPlay = true;
+  Future<void> _play({Duration? newPosition}) async {
+    try {
+      if (_audio == null) return;
+
+      if (_audio!.url != null && _audio!.isPodcast) {
+        _audio = audio?.copyWith(path: _podcastService.getDownloadPath(_audio));
+      }
+
+      final Media? media = _audio!.path != null
+          ? Media('file://${_audio!.path!}')
+          : (_audio!.url != null)
+          ? Media(_audio!.url!)
+          : null;
+
+      if (media == null)
+        throw Exception(
+          'No valid media source found for audio: ${_audio!.title}',
+        );
+
+      await player
+          .open(media)
+          .timeout(
+            PlayTimeoutException.timeoutDuration,
+            onTimeout: () {
+              throw PlayTimeoutException();
+            },
+          );
+      player.state.tracks; // trigger tracks stream to check if it's a video
+
+      if (newPosition != null && _audio!.audioType != AudioType.radio) {
+        final tempVol = _volume;
+        await player.setVolume(0);
+        await Future.delayed(const Duration(seconds: 3));
+        await player.seek(newPosition);
+        await player.setVolume(tempVol ?? 100.0);
+      }
+      setRemoteImageUrl(_audio?.imageUrl ?? _audio?.albumArtUrl);
+
+      if (_audio != null) {
+        await setMediaControlsMetaData(audio: _audio!);
+      }
+      await _exposeService.exposeTitleOnline(
+        title: _audio?.title ?? '',
+        artist: _audio?.artist ?? _audio?.copyright ?? _audio?.language ?? '',
+        additionalInfo: _audio?.album ?? _audio?.podcastTitle ?? '',
+        imageUrl: _audio?.imageUrl ?? _audio?.albumArtUrl,
+      );
+      _firstPlay = false;
+    } on Exception catch (e, s) {
+      _messageController.addError(e);
+      Logger.e(e, trace: s, tag: '$PlayerService');
+      rethrow;
+    }
+  }
+
+  Future<void> playOrPause() async {
+    return _firstPlay ? _play(newPosition: _position) : player.playOrPause();
+  }
+
+  Future<void> pause() async {
+    await player.pause();
+  }
+
+  Timer? _timer;
+  Timer? get timer => _timer;
+  void setPauseTimer(Duration? duration, {required String message}) {
+    _timer?.cancel();
+    if (duration == null) {
+      if (_timer != null) {
+        _timer = null;
+        _messageController.add(message);
+      }
+    } else {
+      _timer = Timer(duration, () async {
+        await pause();
+        _timer = null;
+        _changesController.add(const TimerChange(false));
+        _messageController.add(message);
+      });
+    }
+    _changesController.add(TimerChange(_timer != null));
+  }
+
+  Future<void> seek(Duration position) => player.seek(position);
+
+  Future<void> resume() async {
+    if (audio == null) return;
+    await playOrPause();
+  }
+
+  Future<void> playNext() async {
+    await safeCurrentAudioPosition();
+    if (nextAudio != null) {
+      await _setAudio(nextAudio!);
+      await _estimateNext();
+    }
+    await _play();
+  }
+
+  Future<void> insertIntoQueue(List<Audio> newAudios) async {
+    for (var audio in newAudios.reversed) {
+      await _insertAudioIntoQueue(audio);
+    }
+  }
+
+  Future<void> _insertAudioIntoQueue(Audio newAudio) async {
+    if (_queue.audios.isEmpty) {
+      await play(audios: [newAudio], listName: newAudio.toString());
+    } else if (_audio != null) {
+      final currentIndex = queue.audios.indexOf(_audio!);
+      if (_queue.audios.contains(newAudio)) {
+        final indexOfTitleInQueue = _queue.audios.indexOf(newAudio);
+        await moveAudioInQueue(indexOfTitleInQueue, currentIndex + 1);
+      } else {
+        _queue.audios.insert(currentIndex + 1, newAudio);
+        nextAudio = newAudio;
+      }
+    }
+  }
+
+  Future<void> moveAudioInQueue(int oldIndex, int newIndex) async {
+    if (_queue.audios.isNotEmpty && newIndex < _queue.audios.length) {
+      if (oldIndex < newIndex) {
+        newIndex -= 1;
+      }
+
+      final audio = _queue.audios.removeAt(oldIndex);
+      _queue.audios.insert(newIndex, audio);
+
+      await _estimateNext();
+
+      _changesController.add(QueueChange(_queue));
+    }
+  }
+
+  Future<void> remove(Audio deleteMe) async {
+    _queue.audios.remove(deleteMe);
+    if (_oldQueue != null && _oldQueue!.audios.isNotEmpty) {
+      _oldQueue!.audios.remove(deleteMe);
+    }
+    await _estimateNext();
+    _changesController.add(QueueChange(_queue));
+  }
+
+  Future<void> _estimateNext() async {
+    if (audio == null ||
+        queue.audios.isEmpty ||
+        !queue.audios.contains(audio)) {
+      nextAudio = null;
+      return;
+    }
+
+    final currentIndex = queue.audios.indexOf(audio!);
+
+    if (currentIndex == queue.audios.length - 1) {
+      nextAudio = queue.audios.elementAt(0);
+    } else {
+      nextAudio = queue.audios.elementAt(currentIndex + 1);
+    }
+  }
+
+  Future<void> playPrevious() async {
+    if (queue.audios.isNotEmpty == true &&
+        audio != null &&
+        queue.audios.contains(audio)) {
+      if (position != null && position!.inSeconds > 10) {
+        await seek(Duration.zero);
+      } else {
+        final currentIndex = queue.audios.indexOf(audio!);
+        if (currentIndex == 0) {
+          return;
+        }
+        final mightBePrevious = queue.audios.elementAtOrNull(currentIndex - 1);
+        if (mightBePrevious == null) return;
+        await _setAudio(mightBePrevious);
+        await _estimateNext();
+        await _play();
+      }
+    }
+  }
+
+  Future<void> play({
+    required List<Audio> audios,
+    required String listName,
+    int? index,
+  }) async {
+    if (audios.isEmpty) return;
+
+    if (_isPlayingSub == null) {
+      await init();
+    }
+
+    if (audios.length == _queue.audios.length &&
+        listName == _queue.name &&
+        index != null &&
+        audios.elementAtOrNull(index) != null) {
+      await _setAudio(audios.elementAtOrNull(index)!);
+    } else {
+      await setShuffle(false);
+      _oldQueue = const Queue.empty();
+      setQueue(Queue(name: listName, audios: audios.toList()));
+      await _setAudio(
+        (index != null && audios.elementAtOrNull(index) != null)
+            ? audios.elementAtOrNull(index)!
+            : audios.first,
+      );
+    }
+    _position = getLastPosition(_audio?.url);
+    await _estimateNext();
+
+    await _play(newPosition: _position);
+  }
+
+  String? _remoteImageUrl;
+  String? get remoteImageUrl => _remoteImageUrl;
+  void setRemoteImageUrl(String? url) {
+    if (url == _remoteImageUrl) return;
+    _setColor(null);
+
+    _remoteImageUrl = url;
+
+    _changesController.add(ColorChange(_color));
+  }
+
+  Future<void> setRemoteColorFromImageProvider(ImageProvider provider) async {
+    try {
+      final colorScheme = await ColorScheme.fromImageProvider(
+        provider: provider,
+      );
+      _setColor(colorScheme.primary.scale(saturation: 1));
+    } on Exception catch (e, s) {
+      Logger.e(e, trace: s, tag: '$PlayerService');
+    }
+  }
+
+  Color? _color;
+  Color? get color => _color;
+  void _setColor(Color? value) {
+    if (value == _color) return;
+    _color = value;
+    _changesController.add(ColorChange(_color));
+  }
+
+  Future<void> _setLocalColor(Audio? audio) async {
+    try {
+      if (audio == null) {
+        _setColor(null);
+        return;
+      }
+      if (audio.canHaveLocalCover) {
+        final maybeData = await _localCoverService.getCover(
+          albumId: audio.albumDbId!,
+        );
+
+        if (maybeData != null) {
+          final colorScheme = await ColorScheme.fromImageProvider(
+            provider: MemoryImage(maybeData),
+          );
+          _setColor(colorScheme.primary);
+        }
+      }
+    } on Exception catch (e, s) {
+      Logger.e(e, trace: s, tag: '$PlayerService');
+    }
+  }
+
+  //
+  // Last Positions used when the app re-opens and for podcasts
+  //
+
+  Map<String, Duration> _lastPositions = {};
+  Map<String, Duration> get lastPositions => _lastPositions;
+  Future<void> addLastPosition(String key, Duration lastPosition) async {
+    try {
+      await _dao.addLastPosition(key, lastPosition);
+      _lastPositions[key] = lastPosition;
+      _changesController.add(LastPositionsChange(_lastPositions));
+    } on Exception catch (e, st) {
+      Logger.e(e, trace: st, tag: '$PlayerService');
+      _messageController.addError('Error while saving last position for $key');
+    }
+  }
+
+  Future<void> _loadLastPositions() async {
+    try {
+      _lastPositions = await _dao.getLastPositions();
+    } on Exception catch (e, s) {
+      Logger.e(e, trace: s, tag: '$PlayerService');
+      _messageController.addError('Error while loading last positions.');
+      _lastPositions = {};
+    }
+  }
+
+  Future<void> toggleAudiosProgress(
+    List<Audio> audios, {
+    bool markComplete = true,
+  }) async {
+    if (!markComplete) {
+      await _dao.deleteLastPositions(audios);
+      for (final e in audios) {
+        if (e.url != null) {
+          _lastPositions.remove(e.url!);
+        }
+      }
+      _changesController.add(LastPositionsChange(_lastPositions));
+      return;
+    }
+
+    final valid = audios
+        .where((e) => e.url != null && e.durationMs != null)
+        .toList();
+    if (valid.isEmpty) return;
+
+    await _dao.addLastPositions(valid);
+    for (final e in valid) {
+      _lastPositions[e.url!] = Duration(milliseconds: e.durationMs!.toInt());
+    }
+    _changesController.add(LastPositionsChange(_lastPositions));
+  }
+
+  Future<void> clearAllLastPositions() async {
+    await _dao.resetAllLastPositions();
+    _lastPositions.clear();
+    _changesController.add(LastPositionsChange(_lastPositions));
+  }
+
+  Duration? getLastPosition(String? url) => _lastPositions[url];
+
+  Future<void> safeCurrentAudioPosition() async {
+    if (_audio?.audioType != AudioType.podcast ||
+        _audio?.url == null ||
+        _position == null) {
+      return;
+    }
+    Logger.i(
+      'Saving last position for ${_audio!.url}: $_position',
+      tag: '$PlayerService',
+    );
+    await addLastPosition(_audio!.url!, _position!);
+  }
+
+  //
+  // Native media trays
+  //
+
+  Future<void>? Function({
+    required bool isPlaying,
+    required AudioType? audioType,
+    required bool queueNotEmpty,
+  })?
+  _onSetMediaControlsIsPlaying;
+  void Function({required Audio audio, required Uri? artUri})?
+  _onSetMediaControlsMetaData;
+  void Function(Duration? position)? _onSetMediaControlsPosition;
+  void Function(Duration? duration)? _onSetMediaControlsDuration;
+  void Function()? _onStopMediaControls;
+
+  void registerMediaControlsCallBacks({
+    required Future<void> onIsPlaying({
+      required bool isPlaying,
+      required AudioType? audioType,
+      required bool queueNotEmpty,
+    }),
+    required void onSetMetaData({required Audio audio, required Uri? artUri}),
+    required void onSetPosition(Duration? position),
+    required void onSetDuration(Duration? duration)?,
+    required void Function()? onStop,
+  }) {
+    _onSetMediaControlsIsPlaying = onIsPlaying;
+    _onSetMediaControlsMetaData = onSetMetaData;
+    _onSetMediaControlsPosition = onSetPosition;
+    _onSetMediaControlsDuration = onSetDuration;
+    _onStopMediaControls = onStop;
+  }
+
+  void _setMediaControlsIsPlaying(bool playing) =>
+      _onSetMediaControlsIsPlaying?.call(
+        isPlaying: playing,
+        audioType: _audio?.audioType,
+        queueNotEmpty: _queue.audios.isNotEmpty,
+      );
+
+  void _setMediaControlPosition(Duration? position) =>
+      _onSetMediaControlsPosition?.call(position);
+
+  void _setMediaControlDuration(Duration? duration) =>
+      _onSetMediaControlsDuration?.call(duration);
+
+  void _setMediaControlsStop() => _onStopMediaControls?.call();
+
+  Future<void> setMediaControlsMetaData({required Audio audio}) async {
+    final artUri = await _localCoverService.createMediaControlsArtUri(
+      audio: audio,
+    );
+    _onSetMediaControlsMetaData?.call(audio: audio, artUri: artUri);
+  }
+
+  Future<void> persistPlayerState() async {
+    await _writePlayerState();
+    await safeCurrentAudioPosition();
+  }
+
+  Future<void> _loadPlayerState() async {
+    try {
+      final state = await _dao.getPlayerState();
+
+      Audio? audio;
+      if (state.audioJson != null) {
+        audio = Audio.fromMap(json.decode(state.audioJson!));
+      }
+      if (audio == null) return;
+
+      await _setAudio(audio);
+      setRemoteImageUrl(audio.imageUrl);
+
+      if (state.duration != null) {
+        setDuration(state.duration!.parsedDuration);
+      }
+      if (state.position != null) {
+        setPosition(state.position!.parsedDuration);
+      }
+
+      if (state.volume != null) {
+        await setVolume(double.tryParse(state.volume!) ?? 100.0);
+      }
+
+      if (state.rate != null) {
+        await setRate(double.tryParse(state.rate!) ?? 1.0);
+      }
+
+      await _estimateNext();
+
+      await setMediaControlsMetaData(audio: audio);
+    } on Exception catch (e, s) {
+      Logger.e(e, trace: s, tag: '$PlayerService');
+    }
+  }
+
+  Future<void> _writePlayerState() async {
+    try {
+      final audioJson = _audio != null ? json.encode(_audio!.toMap()) : null;
+
+      await _dao.setPlayerState(
+        audioJson: audioJson,
+        duration: _duration?.toString(),
+        position: _position?.toString(),
+        volume: _volume?.toString(),
+        rate: _rate.toString(),
+      );
+      Logger.i(
+        'Player state saved, audio: ${_audio?.title}, position: $_position, volume: $_volume, rate: $_rate,',
+        tag: '$PlayerService',
+      );
+    } on Exception catch (e, st) {
+      Logger.e(e, trace: st, tag: '$PlayerService');
+    }
+  }
+
+  Future<void> _wipePlayerState() async {
+    try {
+      await _dao.deletePlayerState();
+    } on Exception catch (e, s) {
+      Logger.e(e, trace: s, tag: '$PlayerService');
+      _messageController.addError('Error while wiping player state.');
+    }
+  }
+
+  Future<void> resetPlayerState() async {
+    await _wipePlayerState();
+    await stop();
+  }
+
+  void playPath([String? path]) {
+    if (path == null) {
+      return;
+    }
+    try {
+      final file = File(path);
+
+      if (file.existsSync() && file.isPlayable) {
+        play(listName: path, audios: [Audio.local(file, getImage: true)]);
+      }
+    } on Exception catch (e, s) {
+      Logger.e(e, trace: s, tag: '$PlayerService');
+    }
+  }
+
+  Future<void> stop() async {
+    _setMediaControlsStop();
+    await persistPlayerState();
+    await _setAudio(null);
+
+    await _exposeService.exposeTitleOnline(
+      title: '',
+      artist: '',
+      additionalInfo: '',
+      imageUrl: null,
+    );
+
+    _nextAudio = null;
+    _queue = const Queue.empty();
+    _oldQueue = const Queue.empty();
+    _position = Duration.zero;
+    _duration = null;
+    _buffer = null;
+    _isPlaying = false;
+    if (_playlistMode != PlaylistMode.none) {
+      _playlistMode = PlaylistMode.none;
+      _changesController.add(const PlaylistModeChange(PlaylistMode.none));
+    }
+    if (_shuffle) {
+      _shuffle = false;
+      _changesController.add(const ShuffleChange(false));
+    }
+    setRemoteImageUrl(null);
+    _setColor(null);
+    await player.stop();
+    _changesController.add(const ResetChange());
+    await dispose(disposePlayer: false);
+  }
+
+  Future<void> shutdown() async {
+    try {
+      _setMediaControlsStop();
+    } catch (e, s) {
+      Logger.e(e, trace: s, tag: '$PlayerService');
+    }
+
+    try {
+      await persistPlayerState();
+    } catch (e, s) {
+      Logger.e(e, trace: s, tag: '$PlayerService');
+    }
+
+    try {
+      unawaited(
+        _exposeService.exposeTitleOnline(
+          title: '',
+          artist: '',
+          additionalInfo: '',
+          imageUrl: null,
+        ),
+      );
+    } catch (_) {}
+
+    try {
+      await player.stop();
+    } catch (e, s) {
+      Logger.e(e, trace: s, tag: '$PlayerService');
+    }
+
+    try {
+      unawaited(dispose(disposePlayer: true));
+    } catch (e, s) {
+      Logger.e(e, trace: s, tag: '$PlayerService');
+    }
+  }
+}

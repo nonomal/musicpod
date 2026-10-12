@@ -1,0 +1,33 @@
+import 'package:media_kit/media_kit.dart';
+
+import '../../../common/logging.dart';
+
+Future<void> observeProperty({
+  required String property,
+  required Player player,
+  Future<void> Function(String)? listener,
+}) async {
+  NativePlayer? nativePlayer;
+  try {
+    final platform = player.platform;
+    if (platform is NativePlayer) {
+      nativePlayer = platform;
+    }
+  } catch (e, s) {
+    Logger.e(e, trace: s, tag: 'MpvProperty:$property');
+  }
+
+  if (nativePlayer == null) {
+    return Future.value();
+  }
+
+  if (listener == null) {
+    if (nativePlayer.observed.containsKey(property)) {
+      Logger.i('Unobserving', tag: 'MpvProperty:$property');
+      return nativePlayer.unobserveProperty(property);
+    }
+  } else if (!nativePlayer.observed.containsKey(property)) {
+    Logger.i('Observing', tag: 'MpvProperty:$property');
+    return nativePlayer.observeProperty(property, listener);
+  }
+}

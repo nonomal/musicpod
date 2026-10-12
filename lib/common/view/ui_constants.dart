@@ -1,0 +1,89 @@
+import 'package:flutter/material.dart';
+
+const kLargestSpace = 20.0;
+
+const kMediumSpace = 10.0;
+
+const kMediumPlusSpace = 15.0;
+
+const kSmallestSpace = 5.0;
+
+const kTinyButtonSize = 30.0;
+
+const kTinyButtonIconSize = 13.0;
+
+const kDesktopSearchBarWidth = 335.0;
+
+const kMobileSearchBarWidth = 300.0;
+
+const kFullWindowPlayerImageSize = 300.0;
+
+const kPlayerExplorerWidth = 500.0;
+
+const kMaxAudioPageHeaderHeight = 200.0;
+
+const kSnackBarDuration = Duration(seconds: 10);
+
+const kAudioTilePadding = EdgeInsets.zero;
+
+const kAudioTrackWidth = 40.0;
+
+const kGridPadding = EdgeInsets.only(
+  top: 0,
+  bottom: kLargestSpace,
+  left: kLargestSpace,
+  right: kLargestSpace,
+);
+
+const kAudioCardDimension = 150.0;
+
+const kMobileAudioCardDimension = 135.0;
+
+const kAudioCardBottomHeight = 50.0;
+
+const kMasterDetailBreakPoint = 720.0;
+
+const kMasterDetailSideBarWidth = 250.0;
+
+const kAdaptivContainerBreakPoint = 1200.0;
+
+const kAudioCardGridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
+  maxCrossAxisExtent: kAudioCardDimension + 40,
+  mainAxisExtent: kAudioCardDimension + kAudioCardBottomHeight + 8,
+  mainAxisSpacing: 0,
+  crossAxisSpacing: 10,
+);
+
+const kAudioCardMobileGridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
+  maxCrossAxisExtent: kMobileAudioCardDimension + 40,
+  mainAxisExtent: kMobileAudioCardDimension + kAudioCardBottomHeight + 8,
+  mainAxisSpacing: 0,
+  crossAxisSpacing: 10,
+);
+
+const kDiskGridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
+  maxCrossAxisExtent: kAudioCardDimension + 10,
+  mainAxisSpacing: 10,
+  crossAxisSpacing: 10,
+);
+
+const kAudioControlPanelPadding = EdgeInsets.only(
+  top: kLargestSpace / 2,
+  left: kLargestSpace,
+  right: kLargestSpace,
+  bottom: kLargestSpace / 2,
+);
+
+const kMainPageIconPadding = EdgeInsets.only(right: 4.0);
+
+const kAudioHeaderDescriptionWidth = 400.0;
+
+const kShowLeadingThreshold = 500;
+
+const kMusicPodDefaultColor = Color(0xFFed3c63);
+
+const kMobileScaffoldBackgroundColor = Color.fromARGB(255, 14, 14, 14);
+
+const kDialogWidthMedium = 480.0;
+const kDialogWidthSmall = 343.0;
+const kDialogWidthLarge = 900.0;

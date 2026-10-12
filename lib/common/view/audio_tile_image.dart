@@ -1,0 +1,53 @@
+import 'package:flutter/material.dart';
+
+import '../../local_audio/view/local_cover.dart';
+import '../data/audio.dart';
+import 'audio_fall_back_icon.dart';
+import 'safe_network_image.dart';
+
+class AudioTileImage extends StatelessWidget {
+  const AudioTileImage({
+    super.key,
+    this.audio,
+    required this.size,
+    this.fallback,
+  });
+  final Audio? audio;
+  final double size;
+  final Widget? fallback;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallbackIcon = AudioFallBackIcon(audio: audio, iconSize: size / 1.65);
+    Widget image;
+    if (audio?.canHaveLocalCover == true) {
+      image = LocalCover(
+        albumId: audio!.albumDbId!,
+        fit: BoxFit.cover,
+        dimension: size,
+        fallback: fallbackIcon,
+      );
+    } else {
+      image = audio?.imageUrl == null
+          ? fallbackIcon
+          : SafeNetworkImage(
+              url: audio!.imageUrl!,
+              height: size,
+              width: size,
+              cacheHeight: (size * 2).toInt(),
+              cacheWidth: (size * 2).toInt(),
+              fit: BoxFit.cover,
+              loadingWidget: fallbackIcon,
+              errorWidget: fallbackIcon,
+            );
+    }
+
+    return SizedBox.square(
+      dimension: size,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size / 6),
+        child: image,
+      ),
+    );
+  }
+}

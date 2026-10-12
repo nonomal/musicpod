@@ -3,22 +3,21 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-  connectivity_plus
+  audio_service_win
+  desktop_drop
   file_selector_windows
-  irondash_engine_context
+  local_notifier
   media_kit_libs_windows_video
   media_kit_video
-  screen_brightness_windows
-  screen_retriever
-  super_native_extensions
+  permission_handler_windows
+  screen_retriever_windows
   system_theme
   url_launcher_windows
   window_manager
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
-  media_kit_native_event_loop
-  smtc_windows
+  jni
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

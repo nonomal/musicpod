@@ -1,0 +1,204 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../app/routing_manager.dart';
+import '../../common/data/audio_type.dart';
+import '../../common/view/copy_clipboard_content.dart';
+import '../../common/view/icons.dart';
+import '../../common/view/modals.dart';
+import '../../common/view/mpv_metadata_dialog.dart';
+import '../../common/view/stream_provider_share_button.dart';
+import '../../common/view/tapable_text.dart';
+import '../../common/view/ui_constants.dart';
+import '../../extensions/build_context_x.dart';
+import '../../extensions/theme_data_x.dart';
+import '../../player/manager/blocked_icy_titles_manager.dart';
+import '../../player/manager/mpv_metadata_history_manager.dart';
+import '../../search/data/search_type.dart';
+import '../../search/manager/search_manager.dart';
+import '../manager/online_art_manager.dart';
+import 'radio_history_tile_image.dart';
+import 'station_page.dart';
+
+enum _RadioHistoryTileVariant { regular, simple }
+
+class RadioHistoryTile extends ConsumerWidget {
+  const RadioHistoryTile({
+    super.key,
+    required this.icyTitle,
+    required this.selected,
+    this.allowNavigation = true,
+  }) : _variant = _RadioHistoryTileVariant.regular;
+
+  const RadioHistoryTile.simple({
+    super.key,
+    required this.icyTitle,
+    required this.selected,
+    this.allowNavigation = false,
+  }) : _variant = _RadioHistoryTileVariant.simple;
+
+  final _RadioHistoryTileVariant _variant;
+  final String icyTitle;
+  final bool selected;
+  final bool allowNavigation;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final icyName = ref.watch(
+      mpvMetadataHistoryManagerProvider.select((m) => m[icyTitle]?.icyName),
+    );
+
+    return switch (_variant) {
+      _RadioHistoryTileVariant.simple => _SimpleRadioHistoryTile(
+        icyTitle: icyTitle,
+        selected: selected,
+      ),
+      _RadioHistoryTileVariant.regular => ListTile(
+        selected: selected,
+        selectedColor: context.theme.contrastyPrimary,
+        contentPadding: const EdgeInsets.symmetric(horizontal: kLargestSpace),
+        leading: RadioHistoryTileImage(
+          key: ValueKey(icyTitle),
+          icyTitle: icyTitle,
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          spacing: kSmallestSpace,
+          children: [
+            PopupMenuButton<RadioHistoryTileOption>(
+              icon: Icon(Iconz.viewMore),
+              onSelected: (v) {
+                switch (v) {
+                  case RadioHistoryTileOption.streamprovider:
+                    break;
+                  case RadioHistoryTileOption.showMetadata:
+                    final imageUrl = ref
+                        .read(onlineArtManagerProvider(icyTitle))
+                        .value;
+                    final metadata = ref.read(
+                      mpvMetadataHistoryManagerProvider,
+                    )[icyTitle];
+                    if (metadata == null) return;
+
+                    showModal(
+                      mode: ModalMode.platformModalMode,
+                      context: context,
+                      content: MpvMetadataDialog(
+                        mode: ModalMode.platformModalMode,
+                        image: imageUrl,
+                        mpvMetaData: metadata,
+                      ),
+                    );
+                  case RadioHistoryTileOption.ignoreTitle:
+                    ref
+                        .read(blockedIcyTitlesManagerProvider.notifier)
+                        .add(icyTitle);
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  child: StreamProviderRow(text: icyTitle, onTap: context.pop),
+                  value: RadioHistoryTileOption.streamprovider,
+                ),
+                PopupMenuItem(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      spacing: kMediumSpace,
+                      children: [
+                        Icon(Iconz.info),
+                        Expanded(child: Text(context.l10n.metadata)),
+                      ],
+                    ),
+                  ),
+                  value: RadioHistoryTileOption.showMetadata,
+                ),
+                PopupMenuItem(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      spacing: kMediumSpace,
+                      children: [
+                        Icon(Iconz.remove),
+                        Expanded(
+                          child: Text(
+                            context.l10n.ignoreThisTitleInHearingHistory,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  value: RadioHistoryTileOption.ignoreTitle,
+                ),
+              ],
+            ),
+          ],
+        ),
+        title: TapAbleText(
+          overflow: TextOverflow.visible,
+          maxLines: 10,
+          text: icyTitle,
+          onTap: () => context.toast(CopyClipboardContent(text: icyTitle)),
+        ),
+        subtitle: TapAbleText(
+          text: icyName ?? context.l10n.station,
+          onTap: !allowNavigation || icyName == null
+              ? null
+              : () {
+                  final searchManager = ref.read(searchManagerProvider.notifier)
+                    ..setSearchType(SearchType.radioName)
+                    ..setSearchQuery(icyName)
+                    ..setAudioType(AudioType.radio);
+                  searchManager.radioNameSearch(icyName).then((v) {
+                    if (v?.firstOrNull?.uuid != null) {
+                      ref
+                          .read(routingManagerProvider.notifier)
+                          .push(
+                            builder: (_) => StationPage(uuid: v.first.uuid!),
+                            pageId: v!.first.uuid!,
+                          );
+                    }
+                  });
+                },
+        ),
+      ),
+    };
+  }
+}
+
+enum RadioHistoryTileOption { showMetadata, ignoreTitle, streamprovider }
+
+class _SimpleRadioHistoryTile extends ConsumerWidget {
+  const _SimpleRadioHistoryTile({
+    required this.icyTitle,
+    required this.selected,
+  });
+
+  final String icyTitle;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListTile(
+      selected: selected,
+      selectedColor: context.theme.colorScheme.onSurface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: kLargestSpace),
+      leading: Visibility(visible: selected, child: const Text('>')),
+      trailing: Visibility(visible: selected, child: const Text('<')),
+      title: TapAbleText(
+        overflow: TextOverflow.visible,
+        maxLines: 10,
+        text: icyTitle,
+        onTap: () => context.toast(CopyClipboardContent(text: icyTitle)),
+      ),
+      subtitle: Text(
+        ref.watch(
+              mpvMetadataHistoryManagerProvider.select(
+                (m) => m[icyTitle]?.icyName,
+              ),
+            ) ??
+            context.l10n.station,
+      ),
+    );
+  }
+}

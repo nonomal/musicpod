@@ -1,0 +1,121 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:yaru/yaru.dart';
+
+import '../../app/page_ids.dart';
+import '../../app/routing_manager.dart';
+import '../../common/data/audio_type.dart';
+import '../../common/view/ui_constants.dart';
+import '../../extensions/build_context_x.dart';
+import '../../radio/manager/radio_star_station_manager.dart';
+import '../../radio/manager/radio_manager.dart';
+import '../../search/manager/search_manager.dart';
+
+class CustomStationSection extends ConsumerStatefulWidget {
+  const CustomStationSection({super.key});
+
+  @override
+  ConsumerState<CustomStationSection> createState() => _AddStationDialogState();
+}
+
+class _AddStationDialogState extends ConsumerState<CustomStationSection> {
+  late TextEditingController _urlController;
+
+  @override
+  void initState() {
+    super.initState();
+    _urlController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        TextField(
+          autofocus: true,
+          controller: _urlController,
+          decoration: const InputDecoration(label: Text('Url')),
+        ),
+        const SizedBox(height: kLargestSpace),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: kLargestSpace),
+          child: YaruInfoBox(
+            yaruInfoType: YaruInfoType.warning,
+            trailing: TextButton(
+              style: TextButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(kYaruButtonRadius),
+                ),
+                foregroundColor: YaruInfoType.warning.getColor(context),
+              ),
+              onPressed: () {
+                ref
+                    .read(searchManagerProvider.notifier)
+                    .setAudioType(AudioType.radio);
+                ref
+                    .read(routingManagerProvider.notifier)
+                    .push(pageId: PageIDs.searchPage);
+              },
+              child: Text(l10n.search),
+            ),
+            subtitle: Text(l10n.customStationWarning),
+          ),
+        ),
+        Align(
+          alignment: Alignment.bottomRight,
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              ListenableBuilder(
+                listenable: _urlController,
+                builder: (context, _) => ListenableBuilder(
+                  listenable: _urlController,
+                  builder: (context, _) => ElevatedButton(
+                    onPressed:
+                        _urlController.text.isEmpty ||
+                            !_urlController.text.startsWith('http')
+                        ? null
+                        : () {
+                            ref
+                                .read(radioManagerProvider.notifier)
+                                .getStationByUrl(_urlController.text)
+                                .then((v) {
+                                  if (v?.uuid == null) {
+                                    if (context.mounted) {
+                                      context.toast(
+                                        Text(context.l10n.noStationFound),
+                                      );
+                                    }
+
+                                    return;
+                                  } else {
+                                    ref
+                                        .read(
+                                          radioStarStationManagerProvider
+                                              .notifier,
+                                        )
+                                        .toggleStarredStation(v);
+                                  }
+                                });
+                          },
+                    child: Text(context.l10n.search),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}

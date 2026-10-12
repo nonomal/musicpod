@@ -1,0 +1,302 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../app/full_window_mode_manager.dart';
+import '../../app/routing_manager.dart';
+import '../../common/data/audio.dart';
+import '../../common/data/audio_type.dart';
+import '../../common/view/copy_clipboard_content.dart';
+import '../../dependencies.dart';
+import '../../extensions/build_context_x.dart';
+import '../../extensions/platform_x.dart';
+import '../../extensions/string_x.dart';
+import '../../local_audio/manager/local_audio_manager.dart';
+import '../../local_audio/service/local_audio_service.dart';
+import '../../local_audio/view/album_page.dart';
+import '../../local_audio/view/artist_page.dart';
+import '../../podcasts/view/podcast_page.dart';
+import '../../radio/view/station_page.dart';
+import '../../settings/data/shared_preferences_keys.dart';
+import '../../settings/manager/settings_manager.dart';
+import '../manager/current_audio_manager.dart';
+import '../manager/mpv_metadata_manager.dart';
+import 'player_track.dart';
+import 'player_view.dart';
+
+class PlayerTitleAndArtist extends ConsumerWidget {
+  const PlayerTitleAndArtist({super.key, required this.playerPosition});
+
+  final PlayerPosition playerPosition;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.theme;
+
+    final audio = ref.watch(currentAudioManagerProvider);
+
+    final hoverColor = theme.colorScheme.primary.withValues(alpha: 0.3);
+    final icyTitle = ref.watch(
+      mpvMetadataManagerProvider.select((m) => m?.icyTitle),
+    );
+    final showPositionDuration =
+        ref.watch(settingsBoolManagerProvider(SPKeys.showPositionDuration)) ??
+        false;
+    final localAudioIsInitializing = ref.watch(
+      localAudioManagerProvider.select((s) => s.isLoading),
+    );
+
+    return Column(
+      mainAxisSize: switch (playerPosition) {
+        PlayerPosition.bottom => MainAxisSize.max,
+        _ => MainAxisSize.min,
+      },
+      mainAxisAlignment: switch (playerPosition) {
+        PlayerPosition.bottom => MainAxisAlignment.center,
+        _ => isMobile ? MainAxisAlignment.start : MainAxisAlignment.center,
+      },
+      crossAxisAlignment: switch (playerPosition) {
+        PlayerPosition.bottom => CrossAxisAlignment.start,
+        _ => isMobile ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+      },
+      children: [
+        Material(
+          color: Colors.transparent,
+          borderRadius: switch (playerPosition) {
+            PlayerPosition.bottom => BorderRadius.circular(4),
+            _ => BorderRadius.circular(10),
+          },
+          child: InkWell(
+            hoverColor: hoverColor,
+            borderRadius: switch (playerPosition) {
+              PlayerPosition.bottom => BorderRadius.circular(4),
+              _ => BorderRadius.circular(10),
+            },
+            onTap: localAudioIsInitializing || audio == null
+                ? null
+                : () => _onTitleTap(
+                    audio: audio,
+                    text: icyTitle,
+                    context: context,
+                    ref: ref,
+                  ),
+            child: Tooltip(
+              message: _title(audio: audio, icyTitle: icyTitle),
+              child: Text(
+                _title(audio: audio, icyTitle: icyTitle),
+                style: switch (playerPosition) {
+                  PlayerPosition.bottom => _bottomTitleTextStyle(),
+                  _ => _fullHeightTitleTextStyle(theme),
+                },
+                textAlign: _textAlign(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ),
+        Material(
+          borderRadius: switch (playerPosition) {
+            PlayerPosition.bottom => BorderRadius.circular(4),
+            _ => BorderRadius.circular(8),
+          },
+          color: Colors.transparent,
+          child: InkWell(
+            hoverColor: hoverColor,
+            borderRadius: switch (playerPosition) {
+              PlayerPosition.bottom => BorderRadius.circular(4),
+              _ => BorderRadius.circular(8),
+            },
+            onTap: localAudioIsInitializing || audio == null
+                ? null
+                : () => _onArtistTap(context: context, audio: audio),
+            child: Tooltip(
+              message: _subTitle(audio),
+              child: Text(
+                _subTitle(audio),
+                style: switch (playerPosition) {
+                  PlayerPosition.bottom => _bottomArtistTextStyle(),
+                  _ => _fullHeightArtistTextStyle(theme),
+                },
+                textAlign: _textAlign(),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+            ),
+          ),
+        ),
+        if (playerPosition == PlayerPosition.bottom &&
+            audio?.audioType != AudioType.radio &&
+            showPositionDuration)
+          const Padding(
+            padding: EdgeInsets.only(top: 2, bottom: 5),
+            child: PlayerSimpleTrack(),
+          )
+        else
+          SizedBox(
+            height: switch (playerPosition) {
+              PlayerPosition.bottom => 3,
+              _ => 0,
+            },
+          ),
+      ].map((e) => Flexible(child: e)).toList(),
+    );
+  }
+
+  TextAlign _textAlign() => switch (playerPosition) {
+    PlayerPosition.bottom => TextAlign.start,
+    _ => isMobile ? TextAlign.start : TextAlign.center,
+  };
+
+  TextStyle _fullHeightTitleTextStyle(ThemeData theme) => TextStyle(
+    fontWeight: FontWeight.normal,
+    fontSize: 20,
+    color: theme.colorScheme.onSurface,
+  );
+
+  TextStyle _fullHeightArtistTextStyle(ThemeData theme) => TextStyle(
+    fontWeight: FontWeight.normal,
+    fontSize: 16,
+    color: theme.colorScheme.onSurface,
+  );
+
+  TextStyle _bottomTitleTextStyle() =>
+      const TextStyle(fontWeight: FontWeight.w400, fontSize: 14);
+
+  TextStyle _bottomArtistTextStyle() =>
+      const TextStyle(fontWeight: FontWeight.normal, fontSize: 12);
+
+  String _subTitle(Audio? audio) =>
+      (switch (audio?.audioType) {
+                AudioType.podcast => audio?.podcastTitle?.unEscapeHtml,
+                AudioType.radio => audio?.title,
+                _ => audio?.artist,
+              } ??
+              '')
+          .trim();
+
+  String _title({required Audio? audio, required String? icyTitle}) =>
+      icyTitle?.isNotEmpty == true && audio?.audioType == AudioType.radio
+      ? icyTitle!
+      : (audio?.title?.isNotEmpty == true ? audio!.title! : '').trim();
+
+  void _onTitleTap({
+    required Audio audio,
+    String? text,
+    required BuildContext context,
+    required WidgetRef ref,
+  }) {
+    if (text?.isNotEmpty == true && audio.audioType == AudioType.radio) {
+      context.toast(CopyClipboardContent(text: text!));
+      return;
+    }
+
+    switch (audio.audioType) {
+      case AudioType.local:
+        _onLocalAudioTitleTap(context: context, audio: audio, ref: ref);
+        return;
+      case AudioType.radio:
+      case AudioType.podcast:
+        if (audio.url == null) return;
+        context.toast(
+          CopyClipboardContent(
+            text: audio.url!,
+            onSearch: () => launchUrl(Uri.parse(audio.url!)),
+          ),
+        );
+        return;
+    }
+  }
+
+  Future<void> _onLocalAudioTitleTap({
+    required BuildContext context,
+    required Audio audio,
+    required WidgetRef ref,
+  }) async {
+    final id =
+        audio.albumDbId ??
+        await di<LocalAudioService>().findAlbumIdForArtistAndAlbum(
+          artist: audio.artist!,
+          album: audio.album!,
+        );
+
+    if (id == null) {
+      context.toast(Text(context.l10n.albumNotFound));
+      return;
+    }
+
+    final container = ProviderScope.containerOf(context, listen: false);
+    await container
+        .read(fullWindowModeManagerProvider.notifier)
+        .setFullWindowMode(false);
+    await container
+        .read(routingManagerProvider.notifier)
+        .push(
+          builder: (_) => AlbumPage(id: id),
+          pageId: id.toString(),
+        );
+  }
+
+  void _onArtistTap({required BuildContext context, required Audio audio}) {
+    final routingManager = ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(routingManagerProvider.notifier);
+    switch (audio.audioType) {
+      case AudioType.local:
+        _onLocalAudioArtistTap(context: context, audio: audio);
+        return;
+      case AudioType.radio:
+        _onRadioArtistTap(context: context, audio: audio);
+        return;
+      case AudioType.podcast:
+        if (audio.feedUrl != null &&
+            routingManager.selectedPageId != audio.feedUrl) {
+          final feedUrl = audio.feedUrl!;
+
+          routingManager.push(
+            pageId: feedUrl,
+            builder: (context) => PodcastPage(feedUrl: feedUrl),
+          );
+        }
+        return;
+    }
+  }
+
+  void _onRadioArtistTap({
+    required BuildContext context,
+    required Audio audio,
+  }) {
+    final routingManager = ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(routingManagerProvider.notifier);
+    if (audio.url == null ||
+        audio.uuid == null ||
+        routingManager.selectedPageId == audio.uuid) {
+      return;
+    }
+    routingManager.push(
+      builder: (_) => StationPage(uuid: audio.uuid!),
+      pageId: audio.uuid!,
+    );
+  }
+
+  void _onLocalAudioArtistTap({
+    required BuildContext context,
+    required Audio audio,
+  }) {
+    final artistId = audio.artist;
+    if (artistId == null) return;
+    final container = ProviderScope.containerOf(context, listen: false);
+    container
+        .read(fullWindowModeManagerProvider.notifier)
+        .setFullWindowMode(false);
+    container
+        .read(routingManagerProvider.notifier)
+        .push(
+          builder: (_) => ArtistPage(pageId: artistId),
+          pageId: artistId,
+        );
+  }
+}

@@ -1,0 +1,88 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../dependencies.dart';
+
+import '../../app/page_ids.dart';
+import '../../app/routing_manager.dart';
+import '../../common/data/audio.dart';
+import '../../common/view/audio_page_type.dart';
+import '../../common/view/no_search_result_page.dart';
+import '../../common/view/sliver_local_audio_tile_list.dart';
+import '../../common/view/sliver_fill_remaining_progress.dart';
+import '../../extensions/build_context_x.dart';
+import '../manager/local_audio_manager.dart';
+import '../service/local_audio_service.dart';
+import 'album_page.dart';
+import 'artist_page.dart';
+
+class TitlesView extends ConsumerWidget {
+  const TitlesView({
+    super.key,
+    required this.audios,
+    this.noResultMessage,
+    this.noResultIcon,
+    required this.constraints,
+    required this.startNewPlaylistOnTap,
+  });
+
+  final List<Audio>? audios;
+  final Widget? noResultMessage, noResultIcon;
+  final BoxConstraints constraints;
+  final bool startNewPlaylistOnTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final importing = ref.watch(
+      localAudioManagerProvider.select((s) => s.isLoading),
+    );
+
+    if (audios == null || importing) {
+      return const SliverFillRemainingProgress();
+    }
+
+    if (audios!.isEmpty) {
+      return SliverNoSearchResultPage(
+        icon: noResultIcon,
+        message: noResultMessage,
+      );
+    }
+
+    return SliverLocalAudioTileList(
+      startNewPlaylistOnTap: startNewPlaylistOnTap,
+      constraints: constraints,
+      audios: audios!,
+      audioPageType: AudioPageType.allTitlesView,
+      pageId: PageIDs.localAudio,
+      onSubTitleTab: (artist) => ref
+          .read(routingManagerProvider.notifier)
+          .push(
+            builder: (_) => ArtistPage(pageId: artist),
+            pageId: artist,
+          ),
+      onSubSubTitleTab: (Audio audio) async {
+        if (audio.album == null || audio.artist == null) {
+          context.toast(Text(context.l10n.nothingFound));
+          return;
+        }
+        final id = await di<LocalAudioService>().findAlbumIdForArtistAndAlbum(
+          artist: audio.artist!,
+          album: audio.album!,
+        );
+
+        if (id == null) {
+          context.toast(Text(context.l10n.nothingFound));
+          return;
+        }
+
+        await ref
+            .read(routingManagerProvider.notifier)
+            .push(
+              builder: (_) => AlbumPage(id: id),
+              pageId: id.toString(),
+            );
+      },
+    );
+  }
+}

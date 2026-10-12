@@ -1,0 +1,100 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:yaru/yaru.dart';
+
+import '../../dependencies.dart';
+
+import '../../extensions/build_context_x.dart';
+import '../../settings/data/shared_preferences_keys.dart';
+import '../../settings/manager/settings_manager.dart';
+
+ScaffoldFeatureController<SnackBar, SnackBarClosedReason>?
+showFailedImportsSnackBarIfNotBlocked({
+  required List<String> failedImports,
+  required BuildContext context,
+  bool failedToImport = false,
+}) {
+  if (context.mounted == false) return null;
+  final container = di.isRegistered<ProviderContainer>()
+      ? di<ProviderContainer>()
+      : ProviderScope.containerOf(context, listen: false);
+  final neverShow =
+      container.read(
+        settingsBoolManagerProvider(SPKeys.neverShowImportFails),
+      ) ??
+      false;
+  final l10n = context.l10n;
+  if (neverShow) return null;
+  return context.toast(
+    _Content(
+      message: failedToImport ? l10n.failedToImport : l10n.failedToReadMetadata,
+      failedImports: failedImports,
+      onNeverShowFailedImports: () => container
+          .read(
+            settingsBoolManagerProvider(SPKeys.neverShowImportFails).notifier,
+          )
+          .set(true),
+    ),
+    action: SnackBarAction(
+      onPressed: () {
+        container
+            .read(
+              settingsBoolManagerProvider(SPKeys.neverShowImportFails).notifier,
+            )
+            .set(true);
+        ScaffoldMessenger.of(context).clearSnackBars();
+      },
+      label: context.l10n.dontShowAgain,
+    ),
+  );
+}
+
+class _Content extends StatelessWidget {
+  const _Content({
+    required this.failedImports,
+    required this.onNeverShowFailedImports,
+    required this.message,
+  });
+
+  final String message;
+  final List<String> failedImports;
+  final void Function() onNeverShowFailedImports;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.theme;
+    final textColor = theme.snackBarTheme.backgroundColor == null
+        ? theme.colorScheme.primary
+        : contrastColor(theme.snackBarTheme.backgroundColor!);
+    return SizedBox(
+      height: 200,
+      width: 200,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(15),
+            child: Text(
+              message,
+              style: theme.textTheme.bodyLarge?.copyWith(color: textColor),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: failedImports.length,
+              itemBuilder: (context, index) {
+                return ListTile(
+                  title: Text(
+                    failedImports[index],
+                    style: TextStyle(color: textColor),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

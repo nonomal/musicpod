@@ -1,0 +1,234 @@
+import 'dart:async';
+
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../common/data/audio_type.dart';
+import '../../player/manager/current_audio_manager.dart';
+import '../../player/manager/play_pause_manager.dart';
+import '../../player/manager/queue_manager.dart';
+import '../../radio/manager/radio_manager.dart';
+import '../../search/manager/search_manager.dart';
+import '../full_window_mode_manager.dart';
+import '../page_ids.dart';
+import '../routing_manager.dart';
+import 'back_gesture.dart';
+
+class MouseAndKeyboardCommandWrapper extends ConsumerWidget {
+  const MouseAndKeyboardCommandWrapper({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Shortcuts(
+    shortcuts: <LogicalKeySet, Intent>{
+      LogicalKeySet(LogicalKeyboardKey.keyF, LogicalKeyboardKey.meta):
+          const _SearchIntent(),
+      LogicalKeySet(LogicalKeyboardKey.keyF, LogicalKeyboardKey.control):
+          const _SearchIntent(),
+      LogicalKeySet(LogicalKeyboardKey.comma, LogicalKeyboardKey.meta):
+          const _SettingsIntent(),
+      LogicalKeySet(LogicalKeyboardKey.meta, LogicalKeyboardKey.backspace):
+          const _BackIntent(),
+      LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.backspace):
+          const _BackIntent(),
+      LogicalKeySet(LogicalKeyboardKey.enter, LogicalKeyboardKey.alt):
+          const _FullWindowIntent(),
+      LogicalKeySet(LogicalKeyboardKey.enter, LogicalKeyboardKey.meta):
+          const _FullWindowIntent(),
+      LogicalKeySet(LogicalKeyboardKey.space, LogicalKeyboardKey.alt):
+          const _PlayPauseIntent(),
+      LogicalKeySet(LogicalKeyboardKey.space, LogicalKeyboardKey.control):
+          const _PlayPauseIntent(),
+      LogicalKeySet(LogicalKeyboardKey.arrowRight, LogicalKeyboardKey.alt):
+          const _PlayNextIntent(),
+      LogicalKeySet(LogicalKeyboardKey.arrowLeft, LogicalKeyboardKey.alt):
+          const _PlayPreviousIntent(),
+    },
+    child: Actions(
+      actions: <Type, Action<Intent>>{
+        _SearchIntent: CallbackAction<_SearchIntent>(
+          onInvoke: (intent) {
+            final routingManager = ref.read(routingManagerProvider.notifier);
+            final currentPageId = ref.read(routingManagerProvider);
+            final fullWindowNotifier = ref.read(
+              fullWindowModeManagerProvider.notifier,
+            );
+
+            if (currentPageId == PageIDs.searchPage) {
+              if (ref.read(fullWindowModeManagerProvider)) {
+                fullWindowNotifier.setFullWindowMode(false);
+              } else {
+                routingManager.pop();
+              }
+            } else {
+              if (ref.read(fullWindowModeManagerProvider)) {
+                fullWindowNotifier.setFullWindowMode(false);
+              }
+              ref.read(searchManagerProvider.notifier).setAudioType(
+                switch (currentPageId) {
+                  PageIDs.localAudio => AudioType.local,
+                  PageIDs.radio => AudioType.radio,
+                  _ => AudioType.podcast,
+                },
+              );
+              routingManager.push(pageId: PageIDs.searchPage);
+            }
+
+            return null;
+          },
+        ),
+        _SettingsIntent: CallbackAction<_SettingsIntent>(
+          onInvoke: (intent) {
+            if (ref.read(fullWindowModeManagerProvider)) {
+              ref
+                  .read(fullWindowModeManagerProvider.notifier)
+                  .setFullWindowMode(false);
+            }
+            ref
+                .read(routingManagerProvider.notifier)
+                .push(pageId: PageIDs.settings);
+            return null;
+          },
+        ),
+        _BackIntent: CallbackAction<_BackIntent>(
+          onInvoke: (intent) {
+            if (ref.read(fullWindowModeManagerProvider)) {
+              ref
+                  .read(fullWindowModeManagerProvider.notifier)
+                  .setFullWindowMode(false);
+            }
+            ref.read(routingManagerProvider.notifier).pop();
+            return null;
+          },
+        ),
+        _FullWindowIntent: CallbackAction<_FullWindowIntent>(
+          onInvoke: (intent) {
+            ref
+                .read(fullWindowModeManagerProvider.notifier)
+                .toggleFullWindowMode();
+            return null;
+          },
+        ),
+        _PlayPauseIntent: CallbackAction<_PlayPauseIntent>(
+          onInvoke: (intent) {
+            ref.read(playPauseManagerProvider.notifier).playOrPause();
+            return null;
+          },
+        ),
+        _PlayNextIntent: CallbackAction<_PlayNextIntent>(
+          onInvoke: (intent) {
+            final audio = ref.read(currentAudioManagerProvider);
+            if (audio == null) return null;
+
+            if (audio.isRadio) {
+              unawaited(
+                ref
+                    .read(similarStationManagerProvider.notifier)
+                    .findSimilarStation(audio)
+                    .then((similar) {
+                      if (similar != null) {
+                        ref
+                            .read(playPauseManagerProvider.notifier)
+                            .play(
+                              audios: [similar],
+                              listName: similar.uuid ?? '',
+                            );
+                      }
+                    }),
+              );
+            } else {
+              ref.read(queueManagerProvider.notifier).playNext();
+            }
+            return null;
+          },
+        ),
+        _PlayPreviousIntent: CallbackAction<_PlayPreviousIntent>(
+          onInvoke: (intent) {
+            final audio = ref.read(currentAudioManagerProvider);
+            if (audio == null) return null;
+
+            if (audio.isRadio) {
+              ref.read(queueManagerProvider.notifier).playNext();
+            } else {
+              ref.read(queueManagerProvider.notifier).playPrevious();
+            }
+            return null;
+          },
+        ),
+      },
+      child: RawGestureDetector(
+        gestures: <Type, GestureRecognizerFactory>{
+          _MouseBackButtonRecognizer:
+              GestureRecognizerFactoryWithHandlers<_MouseBackButtonRecognizer>(
+                () => _MouseBackButtonRecognizer(),
+                (instance) =>
+                    instance.onTapDown = (details) =>
+                        ref.read(routingManagerProvider.notifier).pop(),
+              ),
+        },
+        child: BackGesture(child: child),
+      ),
+    ),
+  );
+}
+
+class _SearchIntent extends Intent {
+  const _SearchIntent();
+}
+
+class _SettingsIntent extends Intent {
+  const _SettingsIntent();
+}
+
+class _BackIntent extends Intent {
+  const _BackIntent();
+}
+
+class _FullWindowIntent extends Intent {
+  const _FullWindowIntent();
+}
+
+class _PlayPauseIntent extends Intent {
+  const _PlayPauseIntent();
+}
+
+class _PlayNextIntent extends Intent {
+  const _PlayNextIntent();
+}
+
+class _PlayPreviousIntent extends Intent {
+  const _PlayPreviousIntent();
+}
+
+class _MouseBackButtonRecognizer extends BaseTapGestureRecognizer {
+  GestureTapDownCallback? onTapDown;
+
+  @override
+  void handleTapCancel({
+    required PointerDownEvent down,
+    PointerCancelEvent? cancel,
+    required String reason,
+  }) {}
+
+  @override
+  void handleTapDown({required PointerDownEvent down}) {
+    final TapDownDetails details = TapDownDetails(
+      globalPosition: down.position,
+      localPosition: down.localPosition,
+      kind: getKindForPointer(down.pointer),
+    );
+
+    if (down.buttons == kBackMouseButton && onTapDown != null) {
+      invokeCallback<void>('onTapDown', () => onTapDown!(details));
+    }
+  }
+
+  @override
+  void handleTapUp({
+    required PointerDownEvent down,
+    required PointerUpEvent up,
+  }) {}
+}

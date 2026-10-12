@@ -1,0 +1,98 @@
+import 'package:collection/collection.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:scroll_to_index/scroll_to_index.dart';
+
+import '../../common/view/header_bar.dart';
+import '../../common/view/search_button.dart';
+import '../../common/view/theme.dart';
+import '../../common/view/ui_constants.dart';
+import '../../extensions/build_context_x.dart';
+
+import '../manager/settings_manager.dart';
+import 'about_section.dart';
+import 'expose_online_section.dart';
+import 'local_audio_section.dart';
+import 'lyrics_section.dart';
+import 'podcast_section.dart';
+import 'radio_section.dart';
+import 'reset_section.dart';
+import 'resource_section.dart';
+import 'theme_section.dart';
+
+class SettingsPage extends ConsumerStatefulWidget {
+  const SettingsPage({super.key});
+
+  @override
+  ConsumerState<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends ConsumerState<SettingsPage> {
+  final AutoScrollController _scrollController = AutoScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _scrollController.scrollToIndex(
+        ref.read(settingsScrollIndexProvider),
+        preferPosition: AutoScrollPosition.begin,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    _scrollController.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: HeaderBar(
+      title: Text(context.l10n.settings),
+      actions: [
+        Padding(
+          padding: appBarSingleActionSpacing,
+          child: const SearchButton(),
+        ),
+      ],
+    ),
+    body: Center(
+      child: SizedBox(
+        width: 700,
+        child: ListView(
+          controller: _scrollController,
+          children:
+              const [
+                    ThemeSection(),
+                    PodcastSection(),
+                    LocalAudioSection(),
+                    RadioSection(),
+                    ExposeOnlineSection(),
+                    ResourceSection(),
+                    ResetSection(),
+                    LyricsSection(),
+                    AboutSection(),
+                  ]
+                  .mapIndexed(
+                    (i, e) => AutoScrollTag(
+                      key: ValueKey(i),
+                      controller: _scrollController,
+                      index: i,
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          bottom: kLargestSpace,
+                          left: kLargestSpace,
+                          right: kLargestSpace,
+                        ),
+                        child: e,
+                      ),
+                    ),
+                  )
+                  .toList(),
+        ),
+      ),
+    ),
+  );
+}

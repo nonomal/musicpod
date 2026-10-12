@@ -1,0 +1,28 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../common/data/audio_type.dart';
+import '../../common/view/like_icon_button.dart';
+import '../../common/view/stared_station_icon_button.dart';
+import '../../extensions/build_context_x.dart';
+import '../manager/current_audio_manager.dart';
+
+class BottomPlayerLikeAndStarButton extends ConsumerWidget {
+  const BottomPlayerLikeAndStarButton({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final audio = ref.watch(currentAudioManagerProvider);
+    return Builder(
+      key: ObjectKey(audio),
+      builder: (context) => switch (audio?.audioType) {
+        AudioType.local => LikeIconButton(
+          audio: audio,
+          color: context.colorScheme.onSurface,
+        ),
+        AudioType.radio => StaredStationIconButton(audio: audio!),
+        _ => const SizedBox.shrink(),
+      },
+    );
+  }
+}

@@ -1,0 +1,104 @@
+import 'dart:async';
+
+import 'package:injectable/injectable.dart';
+import 'package:lastfm/lastfm.dart';
+import 'package:safe_change_notifier/safe_change_notifier.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../common/logging.dart';
+import '../../settings/data/shared_preferences_keys.dart';
+import '../../settings/service/settings_service.dart';
+
+@lazySingleton
+class LastfmService {
+  LastfmService({required SettingsService settingsService})
+    : _settingsService = settingsService;
+
+  final SettingsService _settingsService;
+
+  LastFM? _lastFm;
+  final isAuthorized = SafeValueNotifier<bool>(false);
+  void _setLastFm(LastFM lastFm) {
+    _lastFm = lastFm;
+    isAuthorized.value = lastFm is LastFMAuthorized;
+  }
+
+  Future<void> exposeTitleToLastfm({
+    required String title,
+    required String artist,
+  }) async {
+    if (isAuthorized.value &&
+        _settingsService.getBool(SPKeys.enableLastFm) == true) {
+      try {
+        await (_lastFm as LastFMAuthorized).scrobble(
+          track: title,
+          artist: artist,
+          startTime: DateTime.now(),
+        );
+      } on Exception catch (e, s) {
+        Logger.e(e, trace: s, tag: '$LastfmService');
+      }
+    }
+  }
+
+  Future<void> init({LastFMAuthorized? lastFmAuthorized}) async {
+    if (lastFmAuthorized != null) {
+      _setLastFm(lastFmAuthorized);
+      await _settingsService.setValue(
+        SPKeys.lastFmSessionKey,
+        lastFmAuthorized.sessionKey,
+      );
+      await _settingsService.setValue(
+        SPKeys.lastFmUsername,
+        lastFmAuthorized.username,
+      );
+    } else {
+      final apiKey = _settingsService.getString(SPKeys.lastFmApiKey);
+      final apiSecret = _settingsService.getString(SPKeys.lastFmSecret);
+      final sessionKey = _settingsService.getString(SPKeys.lastFmSessionKey);
+      final username = _settingsService.getString(SPKeys.lastFmUsername);
+
+      if (sessionKey != null &&
+          username != null &&
+          apiKey != null &&
+          apiSecret != null) {
+        _setLastFm(
+          LastFMAuthorized(
+            apiKey,
+            secret: apiSecret,
+            sessionKey: sessionKey,
+            username: username,
+          ),
+        );
+      } else if (apiKey != null) {
+        _setLastFm(LastFMUnauthorized(apiKey, apiSecret));
+      }
+    }
+  }
+
+  Future<void> authorize({
+    required String apiKey,
+    required String apiSecret,
+  }) async {
+    await _settingsService.setValue(SPKeys.lastFmApiKey, apiKey);
+    await _settingsService.setValue(SPKeys.lastFmSecret, apiSecret);
+
+    final lastfmua = LastFMUnauthorized(apiKey, apiSecret);
+    await launchUrl(Uri.parse(await lastfmua.authorizeDesktop()));
+
+    const maxWaitDuration = Duration(minutes: 2); // Customize as needed
+    final startTime = DateTime.now();
+    await Future.delayed(const Duration(seconds: 10));
+    while (DateTime.now().difference(startTime) < maxWaitDuration) {
+      try {
+        final lastfm = await lastfmua.finishAuthorizeDesktop();
+        await init(lastFmAuthorized: lastfm);
+      } catch (e, s) {
+        Logger.e(e, trace: s, tag: '$LastfmService');
+        await Future.delayed(const Duration(seconds: 10));
+      }
+
+      if (isAuthorized.value) break;
+    }
+  }
+}
